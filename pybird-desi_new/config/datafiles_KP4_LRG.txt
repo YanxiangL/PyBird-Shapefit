@@ -1,0 +1,2 @@
+../../data/Pk_dk0.005/DESI_cubic_LRG_mock
+# ../../data/Pk_dk0.005/DESI_cubic_LRG_mock_mean.dat

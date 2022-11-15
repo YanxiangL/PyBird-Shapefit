@@ -1,0 +1,1 @@
+../../data/Pk_dk0.005/DESI_cubic_LRG_mock2.dat

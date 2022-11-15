@@ -1,0 +1,6 @@
+#../../../DESI/KP4/AbacusSummit_mean_LRG.dat
+#../../../DESI/KP4/AbacusSummit_mean_ELG.dat
+#../../../DESI/KP4/AbacusSummit_mean_QSO.dat
+../../data/AbacusSummit_mean_LRG.dat
+../../data/AbacusSummit_mean_ELG.dat
+../../data/AbacusSummit_mean_QSO.dat

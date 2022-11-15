@@ -1,0 +1,9 @@
+#/Volumes/Work/UQ/DESI/KP4/EFTGrids
+#/Volumes/Work/UQ/DESI/KP4/EFTGrids
+#/Volumes/Work/UQ/DESI/KP4/EFTGrids
+#/data/uqchowl1/EFTGrids/KP4/
+#/data/uqchowl1/EFTGrids/KP4/
+#/data/uqchowl1/EFTGrids/KP4/
+../../EFTGrids
+../../EFTGrids
+../../EFTGrids
