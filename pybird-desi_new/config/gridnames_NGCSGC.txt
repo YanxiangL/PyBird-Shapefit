@@ -1,6 +1,0 @@
-SimFits_NGCWinFunc_z0p38_s10fixed-A_s-h-omega_cdm-omega_b_pm
-SimFits_SGCWinFunc_z0p38_s10fixed-A_s-h-omega_cdm-omega_b_pm
-SimFits_NGCWinFunc_z0p51_s10fixed-A_s-h-omega_cdm-omega_b_pm
-SimFits_SGCWinFunc_z0p51_s10fixed-A_s-h-omega_cdm-omega_b_pm
-SimFits_NGCWinFunc_z0p61_s10fixed-A_s-h-omega_cdm-omega_b_pm
-SimFits_SGCWinFunc_z0p61_s10fixed-A_s-h-omega_cdm-omega_b_pm

@@ -1,6 +1,0 @@
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z1_NGC_rebinned_5000bins_s10fixed
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z1_SGC_rebinned_5000bins_s10fixed
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z2_NGC_rebinned_5000bins_s10fixed
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z2_SGC_rebinned_5000bins_s10fixed
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z3_NGC_rebinned_5000bins_s10fixed
-../../../montepython_public/data/BOSS_DR12_FullShape/WinFuncs/Ql_z3_SGC_rebinned_5000bins_s10fixed
