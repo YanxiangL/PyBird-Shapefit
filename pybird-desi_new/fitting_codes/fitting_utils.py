@@ -7,12 +7,14 @@ import copy
 import numpy as np
 import scipy as sp
 from scipy.linalg import lapack, cholesky, block_diag
-from scipy.interpolate import splrep, splev
+from scipy.interpolate import splrep, splev, InterpolatedUnivariateSpline
 from scipy.ndimage import map_coordinates
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
-from scipy.special import legendre, spherical_jn, j1
+from scipy.special import legendre, spherical_jn, j1, loggamma
+from scipy.misc import derivative
+from abc import ABC
 
 sys.path.append("../")
 from tbird.Grid import grid_properties, run_camb, run_class
@@ -29,12 +31,21 @@ class BirdModel:
         self.direct = direct
         self.window = window
         self.Shapefit = Shapefit
+        self.corr_convert = pardict['corr_convert']
 
         # Some constants for the EFT model
         # self.k_m, self.k_nl = 0.7, 0.7
-        self.k_m, self.k_nl = 0.7, 0.7
-        self.eft_priors = np.array([2.0, 2.0, 4.0, 4.0, 2.0, 2.0, 2.0])
+        
+        if pardict['do_corr']:
+            self.k_m, self.k_nl = 1.0, 1.0
+        else:
+            self.k_m, self.k_nl = 0.7, 0.7
+        
+        # self.k_m, self.k_nl = 0.7, 0.7
+        
+        # self.eft_priors = np.array([2.0, 2.0, 4.0, 4.0, 2.0, 2.0, 2.0])
         # self.eft_priors = np.array([2.0, 2.0, 2.0, 2.0, 0.2, 1.0, 1.0])
+        self.eft_priors = None
 
         # Get some values at the grid centre
         if pardict["code"] == "CAMB":
@@ -96,7 +107,7 @@ class BirdModel:
                         "DA": self.Da,
                         "H": self.Hz,
                     },
-                Shapefit = self.Shapefit, Templatefit = self.template)
+                Templatefit = self.template, corr_convert=self.corr_convert)
                 self.linmod, self.loopmod = None, None
                 self.kin = self.correlator.co.k
             else:
@@ -116,8 +127,67 @@ class BirdModel:
                         "f": self.fN,
                         "DA": self.Da,
                         "H": self.Hz,
-                    }
+                    }, Templatefit = self.template, corr_convert=self.corr_convert
                 )
+                
+    #     if self.corr_convert == True:
+    #         self.kmode = np.logspace(np.log10(np.min(self.kin)), np.log10(np.max(self.kin)), 5000)
+    #         self.dist = np.logspace(0.0, 3.0, 5000)
+    #         self.getxbin_mat_cf(fittingdata)
+            
+    #         from pybird_dev.pybird import PowerToCorrelation, PowerToCorrelationSphericalBessel
+            
+    #         self.pk2xi_0 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=0)
+    #         self.pk2xi_2 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=2)
+    #         if pardict['do_hex']:
+    #             self.pk2xi_4 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=4)
+    
+            
+    # def getxbin_mat_cf(self, fittingdata):
+        
+    #     ss = fittingdata.data['xdata'][0]
+        
+    #     ds = ss[-1] - ss[-2]
+    #     # dk = ks[1] - ks[0]
+    #     ss_input = self.dist
+    #     # ks_input = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+        
+    #     # print(self.kmat)
+        
+    #     # self.p = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+
+    #     binmat = np.zeros((len(ss), len(ss_input)))
+    #     for ii in range(len(ss_input)):
+
+    #         # Define basis vector
+    #         cfvec = np.zeros_like(ss_input)
+    #         cfvec[ii] = 1
+    #         # print(pkvec)
+
+    #         # Define the spline:
+    #         cfvec_spline = splrep(ss_input, cfvec)
+
+    #         # Now compute binned basis vector:
+    #         tmp = np.zeros_like(ss)
+    #         for i, sk in enumerate(ss):
+    #             if i == 0 or i == len(ss) - 1:
+    #                 sl = sk - ds / 2
+    #                 sr = sk + ds / 2
+    #             else:
+    #                 sl = (sk + ss[i-1])/2.0
+    #                 sr = (ss[i+1] + sk)/2.0
+                
+    #             s_in = np.linspace(sl, sr, 100)
+    #             tmp[i] = np.trapz(s_in**2 * splev(s_in, cfvec_spline, ext=2), x=s_in) * 3 / (sr**3 - sl**3)
+                
+    #         binmat[:, ii] = tmp
+        
+        
+    #     # if self.co.Nl == 2:
+    #     #     self.xbin_mat = block_diag(*[binmat, binmat])
+    #     # else:
+    #     #     self.xbin_mat = block_diag(*[binmat, binmat, binmat])
+    #     self.xbin_mat = binmat
 
     def setup_pybird(self, fittingdata=None):
 
@@ -127,7 +197,15 @@ class BirdModel:
         Nl = 3
         optiresum = True if self.pardict["do_corr"] else False
         output = "bCf" if self.pardict["do_corr"] else "bPk"
-        kmax = None if self.pardict["do_corr"] else 0.35
+        
+        # kmax = None if self.pardict["do_corr"] else 0.35
+        if self.pardict['do_corr']:
+            kmax = None
+        elif self.corr_convert:
+            kmax = 0.55
+        else:
+            kmax = 0.35
+        
         with_binning = True if self.window is None else False
         correlator = Correlator()
 
@@ -306,7 +384,7 @@ class BirdModel:
                 "f": fN_fid[0],
                 "DA": DN_fid[0],
                 "H": Hz_fid[0],
-            }
+            }, Templatefit = self.template, corr_convert=self.corr_convert
         )
         
         Plin, Ploop = (
@@ -348,99 +426,100 @@ class BirdModel:
         # Modify the template power spectrum by scaling by f and then reapplying the AP effect.
         
         if one_nz == False:
-            alpha_perp, alpha_par, fsigma8 = params
-            if sigma8 is None:
-                factor = 1.0
-                # factor = self.correlator.scale_interp[redindex](factor_m)
-                # factor = np.abs(1.0/(alpha_perp**2*alpha_par)*(np.exp(factor_m/factor_a) - np.exp(-factor_m/factor_a)))
-                self.correlator.birds[redindex].f = fsigma8 / (self.sigma8[redindex]*factor)
-                sigma8_ratio = factor**2
-            else:
-                self.correlator.birds[redindex].f = fsigma8 / sigma8
-                sigma8_ratio = (sigma8/self.sigma8[redindex])**2
+            raise ValueError('PyBird is not able to fit multiple redshift bins with Shapefit currently.')
+            # alpha_perp, alpha_par, fsigma8 = params
+            # if sigma8 is None:
+            #     factor = 1.0
+            #     # factor = self.correlator.scale_interp[redindex](factor_m)
+            #     # factor = np.abs(1.0/(alpha_perp**2*alpha_par)*(np.exp(factor_m/factor_a) - np.exp(-factor_m/factor_a)))
+            #     self.correlator.birds[redindex].f = fsigma8 / (self.sigma8[redindex]*factor)
+            #     sigma8_ratio = factor**2
+            # else:
+            #     self.correlator.birds[redindex].f = fsigma8 / sigma8
+            #     sigma8_ratio = (sigma8/self.sigma8[redindex])**2
             
-            if resum == True:
-                # self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
-                # # IRPs11, IRPsct, IRPsloop = self.correlator.resum.IRPs(self.correlator.birds[redindex], IRPs_all = [IRPs11, IRPsct, IRPsloop])
-                # # IRPs11 += self.correlator.birds[redindex].IRPs11_new
-                # # IRPsct += self.correlator.birds[redindex].IRPsct_new
-                # # IRPsloop += self.correlator.birds[redindex].IRPsloop_new
+            # if resum == True:
+            #     # self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
+            #     # # IRPs11, IRPsct, IRPsloop = self.correlator.resum.IRPs(self.correlator.birds[redindex], IRPs_all = [IRPs11, IRPsct, IRPsloop])
+            #     # # IRPs11 += self.correlator.birds[redindex].IRPs11_new
+            #     # # IRPsct += self.correlator.birds[redindex].IRPsct_new
+            #     # # IRPsloop += self.correlator.birds[redindex].IRPsloop_new
                 
-                if self.Shapefit == True:
-                    # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(factor_m, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio, 
-                    # IRPs_all = [self.correlator.birds[redindex].IRPs11_new, self.correlator.birds[redindex].IRPsct_new, self.correlator.birds[redindex].IRPsloop_new], power=power)
-                    # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(factor_m, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio)
-                    # self.correlator.resum.Ps(self.correlator.bird)
-                    Plin = self.Pmod[len(self.pardict["z_pk"]) // 2]
-                    self.correlator.setShapefit_full(Plin, factor_m = factor_m, kmode=self.kmod, redindex=redindex, factor_a = factor_a, factor_kp = factor_kp)
-                    P11l, Ploopl, Pctl = self.correlator.birds[redindex].P11l, self.correlator.birds[redindex].Ploopl, self.correlator.birds[redindex].Pctl
+            #     if self.Shapefit == True:
+            #         # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(factor_m, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio, 
+            #         # IRPs_all = [self.correlator.birds[redindex].IRPs11_new, self.correlator.birds[redindex].IRPsct_new, self.correlator.birds[redindex].IRPsloop_new], power=power)
+            #         # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(factor_m, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio)
+            #         # self.correlator.resum.Ps(self.correlator.bird)
+            #         Plin = self.Pmod[len(self.pardict["z_pk"]) // 2]
+            #         self.correlator.setShapefit_full(Plin, factor_m = factor_m, kmode=self.kmod, redindex=redindex, factor_a = factor_a, factor_kp = factor_kp)
+            #         P11l, Ploopl, Pctl = self.correlator.birds[redindex].P11l, self.correlator.birds[redindex].Ploopl, self.correlator.birds[redindex].Pctl
                     
-                else:
-                    self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
-                    P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(0.0, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio, 
-                    IRPs_all = [self.correlator.birds[redindex].IRPs11_new, self.correlator.birds[redindex].IRPsct_new, self.correlator.birds[redindex].IRPsloop_new], power=power)
-                    # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(0.0, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio)
+            #     else:
+            #         self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
+            #         P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(0.0, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio, 
+            #         IRPs_all = [self.correlator.birds[redindex].IRPs11_new, self.correlator.birds[redindex].IRPsct_new, self.correlator.birds[redindex].IRPsloop_new], power=power)
+            #         # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.correlator.birds[redindex].setShapefit(0.0, factor_a = factor_a, factor_kp=factor_kp, xdata=self.correlator.co.k, sigma8_ratio=sigma8_ratio)
                 
-                    fullIRPs11 = np.einsum("lpn,pnk,pi->lik", self.correlator.birds[redindex].Q[0], IRPs11, self.correlator.birds[redindex].co.l11)
-                    fullIRPsct = np.einsum("lpn,pnk,pi->lik", self.correlator.birds[redindex].Q[1], IRPsct, self.correlator.birds[redindex].co.lct)
-                    fullIRPsloop = np.einsum("lpn,pink->lik", self.correlator.birds[redindex].Q[1], IRPsloop)
-                    P11l += fullIRPs11
-                    Pctl += fullIRPsct
-                    Ploopl += fullIRPsloop
+            #         fullIRPs11 = np.einsum("lpn,pnk,pi->lik", self.correlator.birds[redindex].Q[0], IRPs11, self.correlator.birds[redindex].co.l11)
+            #         fullIRPsct = np.einsum("lpn,pnk,pi->lik", self.correlator.birds[redindex].Q[1], IRPsct, self.correlator.birds[redindex].co.lct)
+            #         fullIRPsloop = np.einsum("lpn,pink->lik", self.correlator.birds[redindex].Q[1], IRPsloop)
+            #         P11l += fullIRPs11
+            #         Pctl += fullIRPsct
+            #         Ploopl += fullIRPsloop
                 
-            else:
-                self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
+            # else:
+            #     self.correlator.birds[redindex].Q = self.correlator.resum.makeQ(self.correlator.birds[redindex].f)
 
-                if self.Shapefit == False:
-                    factor_m = 0.0
-                ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(self.correlator.co.k/factor_kp)))*sigma8_ratio
+            #     if self.Shapefit == False:
+            #         factor_m = 0.0
+            #     ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(self.correlator.co.k/factor_kp)))*sigma8_ratio
                 
-                # P11l = np.einsum("jk, mnk->jmnk", ratio, self.P11l)
-                # Pctl = np.einsum("jk, mnk->jmnk", ratio, self.Pctl)
-                # Ploopl = np.einsum("jk, mnk->jmnk", ratio, self.Ploopl)
+            #     # P11l = np.einsum("jk, mnk->jmnk", ratio, self.P11l)
+            #     # Pctl = np.einsum("jk, mnk->jmnk", ratio, self.Pctl)
+            #     # Ploopl = np.einsum("jk, mnk->jmnk", ratio, self.Ploopl)
             
-                P11l = self.correlator.birds[redindex].P11l*ratio
-                Pctl = self.correlator.birds[redindex].Pctl*ratio
-                Ploopl = self.correlator.birds[redindex].Ploopl*ratio ** 2
+            #     P11l = self.correlator.birds[redindex].P11l*ratio
+            #     Pctl = self.correlator.birds[redindex].Pctl*ratio
+            #     Ploopl = self.correlator.birds[redindex].Ploopl*ratio ** 2
             
-            # P11l_AP, Pctl_AP, Ploopl_AP = self.correlator.projection[redindex].AP(
-            #     bird=self.correlator.birds[redindex], q=[alpha_perp, alpha_par], overwrite=False,
-            #     PS=[P11l, Ploopl, Pctl]
-            # )
+            # # P11l_AP, Pctl_AP, Ploopl_AP = self.correlator.projection[redindex].AP(
+            # #     bird=self.correlator.birds[redindex], q=[alpha_perp, alpha_par], overwrite=False,
+            # #     PS=[P11l, Ploopl, Pctl]
+            # # )
             
-            # Pstl = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(self.correlator.co.k/factor_kp)))*sigma8_ratio*self.correlator.birds[redindex].Pstl
-            
-            P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection[redindex].AP(
-                bird=self.correlator.birds[redindex], q=[alpha_perp, alpha_par], overwrite=False,
-                PS=[P11l, Ploopl, Pctl, self.correlator.birds[redindex].Pstl]
-            )
+            # # Pstl = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(self.correlator.co.k/factor_kp)))*sigma8_ratio*self.correlator.birds[redindex].Pstl
             
             # P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection[redindex].AP(
             #     bird=self.correlator.birds[redindex], q=[alpha_perp, alpha_par], overwrite=False,
-            #     PS=[P11l, Ploopl, Pctl, Pstl]
+            #     PS=[P11l, Ploopl, Pctl, self.correlator.birds[redindex].Pstl]
             # )
             
-            # print(np.shape(P11l_AP))
+            # # P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection[redindex].AP(
+            # #     bird=self.correlator.birds[redindex], q=[alpha_perp, alpha_par], overwrite=False,
+            # #     PS=[P11l, Ploopl, Pctl, Pstl]
+            # # )
             
-            # a, b, c = list([P11l_AP, Ploopl_AP, Pctl_AP])
-            if self.correlator.config["with_window"] == True:
-                # P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].Window(self.correlator.birds[redindex], PS = list([P11l_AP, Ploopl_AP, Pctl_AP]))
-                P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].Window(self.correlator.birds[redindex], PS = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
+            # # print(np.shape(P11l_AP))
+            
+            # # a, b, c = list([P11l_AP, Ploopl_AP, Pctl_AP])
+            # if self.correlator.config["with_window"] == True:
+            #     # P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].Window(self.correlator.birds[redindex], PS = list([P11l_AP, Ploopl_AP, Pctl_AP]))
+            #     P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].Window(self.correlator.birds[redindex], PS = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
+            # # else:
+            # #     Pstl_AP = self.correlator.birds[redindex].Pstl
+            
+            # if self.window is None:
+            #     P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].xbinning(self.correlator.birds[redindex], PS_all = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
             # else:
-            #     Pstl_AP = self.correlator.birds[redindex].Pstl
+            #     P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection[redindex].xdata(self.correlator.birds[redindex], PS=[P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP])
             
-            if self.window is None:
-                P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection[redindex].xbinning(self.correlator.birds[redindex], PS_all = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
-            else:
-                P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection[redindex].xdata(self.correlator.birds[redindex], PS=[P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP])
+            # Plin, Ploop = self.correlator.birds[redindex].formatTaylorPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.projection[redindex].xout)
             
-            Plin, Ploop = self.correlator.birds[redindex].formatTaylorPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.projection[redindex].xout)
+            # Plin = np.swapaxes(np.reshape(Plin, (self.correlator.co.Nl, Plin.shape[-2]//self.correlator.co.Nl, Plin.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
             
-            Plin = np.swapaxes(np.reshape(Plin, (self.correlator.co.Nl, Plin.shape[-2]//self.correlator.co.Nl, Plin.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
+            # Ploop = np.swapaxes(np.reshape(Ploop, (self.correlator.co.Nl, Ploop.shape[-2]//self.correlator.co.Nl, Ploop.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
             
-            Ploop = np.swapaxes(np.reshape(Ploop, (self.correlator.co.Nl, Ploop.shape[-2]//self.correlator.co.Nl, Ploop.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
-            
-            self.kin = self.correlator.projection[redindex].xout
+            # self.kin = self.correlator.projection[redindex].xout
         
         else:
             alpha_perp, alpha_par, fsigma8 = params
@@ -560,6 +639,11 @@ class BirdModel:
                 bird=self.correlator.bird, q=[alpha_perp, alpha_par], overwrite=False,
                 PS=[P11l, Ploopl, Pctl, self.correlator.bird.Pstl]
             )
+            
+            # P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection.AP(
+            #     bird=self.correlator.bird, q=[alpha_perp, alpha_par], overwrite=False,
+            #     PS=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]
+            # )
 
             
             # P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection.AP(
@@ -574,32 +658,48 @@ class BirdModel:
                 # P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection.Window(self.correlator.bird, PS = list([P11l_AP, Ploopl_AP, Pctl_AP]))
                 P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection.Window(self.correlator.bird, PS = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
             
-            if self.window is None:
-                P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection.xbinning(self.correlator.bird, PS_all = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
-                
-                # P11l_AP = np.einsum("pabc, dc -> pabd", P11l_AP, self.correlator.projection.xbin_mat)
-                # Pctl_AP = np.einsum("pabc, dc -> pabd", Pctl_AP, self.correlator.projection.xbin_mat)
-                # Ploopl_AP = np.einsum("pabc, dc -> pabd", Ploopl_AP, self.correlator.projection.xbin_mat)
-                # Pstl_AP = np.einsum("pabc, dc -> pabd", Pstl_AP, self.correlator.projection.xbin_mat)
-            else:
-                P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection.xdata(self.correlator.bird, PS=[P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP])
-
-            # P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection.xdata(self.correlator.bird, PS=[P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP])
-            
-            # Plin, Ploop = self.correlator.bird.formatShapefitPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.projection.xout)
-
-            Plin, Ploop = self.correlator.bird.formatTaylorPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.projection.xout)
-
-            Plin = np.swapaxes(np.reshape(Plin, (self.correlator.co.Nl, Plin.shape[-2]//self.correlator.co.Nl, Plin.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
-            
-            Ploop = np.swapaxes(np.reshape(Ploop, (self.correlator.co.Nl, Ploop.shape[-2]//self.correlator.co.Nl, Ploop.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
-
             self.kin = self.correlator.projection.xout
             
-            # print(np.shape(Plin), np.shape(Ploop))
-
-        # return Plin, Ploop
-        return Plin[:3], Ploop[:3]
+            if self.corr_convert == False:
+            
+                if self.window is None:
+                    P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP = self.correlator.projection.xbinning(self.correlator.bird, PS_all = list([P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP]))
+                else:
+                    P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP = self.correlator.projection.xdata(self.correlator.bird, PS=[P11l_AP, Pctl_AP, Ploopl_AP, Pstl_AP])
+    
+                Plin, Ploop = self.correlator.bird.formatTaylorPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.projection.xout)
+                # Plin, Ploop = self.correlator.bird.formatTaylorPs(Ps=[P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], kdata=self.correlator.co.k)
+                
+                Plin = np.swapaxes(np.reshape(Plin, (self.correlator.co.Nl, Plin.shape[-2]//self.correlator.co.Nl, Plin.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
+                
+                Ploop = np.swapaxes(np.reshape(Ploop, (self.correlator.co.Nl, Ploop.shape[-2]//self.correlator.co.Nl, Ploop.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
+                
+                # print(np.shape(Plin), np.shape(Ploop))
+                
+                # if self.pardict['do_corr']:
+                    
+    
+            # return Plin, Ploop
+                return Plin[:3], Ploop[:3]
+            
+            else:
+                C11l_AP, Cloopl_AP, Cctl_AP, Cstl_AP = self.correlator.pk2xi_fun(bird = [P11l_AP, Ploopl_AP, Pctl_AP, Pstl_AP], output=True)
+                
+                if self.window is None:
+                    C11l_AP, Cloopl_AP, Cctl_AP, Cstl_AP = self.correlator.projection.xbinning(self.correlator.bird, CF_all = list([C11l_AP, Cloopl_AP, Cctl_AP, Cstl_AP]))
+                else:
+                    C11l_AP, Cctl_AP, Cloopl_AP, Cstl_AP = self.correlator.projection.xdata(self.correlator.bird, CF=[C11l_AP, Cctl_AP, Cloopl_AP, Cstl_AP])
+    
+                Clin, Cloop = self.correlator.bird.formatTaylorCf(CF=[C11l_AP, Cloopl_AP, Cctl_AP, Cstl_AP], sdata=self.correlator.projection.xout)
+    
+                Clin = np.swapaxes(np.reshape(Clin, (self.correlator.co.Nl, Clin.shape[-2]//self.correlator.co.Nl, Clin.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
+                
+                Cloop = np.swapaxes(np.reshape(Cloop, (self.correlator.co.Nl, Cloop.shape[-2]//self.correlator.co.Nl, Cloop.shape[-1]))[:, :, 1:], axis1=1, axis2=2)
+                    
+    
+            # return Plin, Ploop
+                return Clin[:3], Cloop[:3]
+            
         # return Pctl_AP, Ploopl_AP
 
     def compute_hybrid(self, params):
@@ -708,7 +808,8 @@ class BirdModel:
             P4_lin, P4_loop = plin4[0] + b1 * plin4[1] + b1 * b1 * plin4[2], np.sum(cvals * ploop4, axis=1)
             
         # print(np.shape(P0_lin))
-
+        
+            
         P0_interp_lin = [
             sp.interpolate.splev(x_data[0], sp.interpolate.splrep(self.kin, P0_lin[:, i])) for i in range(len(b1))
         ]
@@ -723,6 +824,8 @@ class BirdModel:
         ]
         P0_interp = [P0_interp_lin[i] + P0_interp_loop[i] for i in range(len(b1))]
         P2_interp = [P2_interp_lin[i] + P2_interp_loop[i] for i in range(len(b1))]
+        # P0_interp = [P0_interp_lin[i]  for i in range(len(b1))]
+        # P2_interp = [P2_interp_lin[i]  for i in range(len(b1))]
         
         # P0_interp = [P0_lin[:, i] + P0_loop[:, i] for i in range(len(b1))]
         # P2_interp = [P2_lin[:, i] + P2_loop[:, i] for i in range(len(b1))]
@@ -737,18 +840,58 @@ class BirdModel:
             P4_interp = [P4_interp_lin[i] + P4_interp_loop[i] for i in range(len(b1))]
             
             # P4_interp = [P4_lin[:, i] + P4_loop[:, i] for i in range(len(b1))]
+        # else:
+        #     P0_interp_lin = [
+        #         sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P0_lin[:, i])) for i in range(len(b1))
+        #     ]
+        #     P0_interp_loop = [
+        #         sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P0_loop[:, i])) for i in range(len(b1))
+        #     ]
+        #     P2_interp_lin = [
+        #         sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P2_lin[:, i])) for i in range(len(b1))
+        #     ]
+        #     P2_interp_loop = [
+        #         sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P2_loop[:, i])) for i in range(len(b1))
+        #     ]
+        #     P0_interp = [P0_interp_lin[i] + P0_interp_loop[i] for i in range(len(b1))]
+        #     P2_interp = [P2_interp_lin[i] + P2_interp_loop[i] for i in range(len(b1))]
+            
+        #     # P0_interp = [P0_lin[:, i] + P0_loop[:, i] for i in range(len(b1))]
+        #     # P2_interp = [P2_lin[:, i] + P2_loop[:, i] for i in range(len(b1))]
+            
+        #     if self.pardict["do_hex"]:
+        #         P4_interp_lin = [
+        #             sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P4_lin[:, i])) for i in range(len(b1))
+        #         ]
+        #         P4_interp_loop = [
+        #             sp.interpolate.splev(self.kmode, sp.interpolate.splrep(self.kin, P4_loop[:, i])) for i in range(len(b1))
+        #         ]
+        #         P4_interp = [P4_interp_lin[i] + P4_interp_loop[i] for i in range(len(b1))]
+                
+            # P0_lin_all = []
+            # P2_lin_all = []
+            # P0_loop_all = []
+            # P2_loop_all = []
+            # P0_interp_all = []
+            # P2_interp_all = []
+            # if self.pardict['do_hex']:
+            #     P4_lin_all = []
+            #     P4_loop_all = []
+            #     P4_interp_all = []
+            
+            
 
-        if self.pardict["do_corr"]:
-            C0 = np.exp(-self.k_m * x_data[0]) * self.k_m ** 2 / (4.0 * np.pi * x_data[0])
-            C1 = -self.k_m ** 2 * np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0] ** 2)
-            C2 = (
-                np.exp(-self.k_m * x_data[1])
-                * (3.0 + 3.0 * self.k_m * x_data[1] + self.k_m ** 2 * x_data[1] ** 2)
-                / (4.0 * np.pi * x_data[1] ** 3)
-            )
+        # if self.pardict["do_corr"]:
+        #     C0 = np.exp(-self.k_m * x_data[0]) * self.k_m ** 2 / (4.0 * np.pi * x_data[0])
+        #     C1 = -self.k_m ** 2 * np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0] ** 2)
+        #     C2 = (
+        #         np.exp(-self.k_m * x_data[1])
+        #         * (3.0 + 3.0 * self.k_m * x_data[1] + self.k_m ** 2 * x_data[1] ** 2)
+        #         / (4.0 * np.pi * x_data[1] ** 3)
+        #     )
 
-            P0_interp += np.outer(ce1, C0) + np.outer(cemono, C1)
-            P2_interp += np.outer(cequad, C2)
+        #     P0_interp += np.outer(ce1, C0) + np.outer(cemono, C1)
+        #     P2_interp += np.outer(cequad, C2)
 
         # if self.pardict["do_hex"]:
         #     P_model_lin = np.concatenate([P0_interp_lin, P2_interp_lin, P4_interp_lin], axis=1)
@@ -771,7 +914,7 @@ class BirdModel:
         return P_model_lin.T, P_model_loop.T, P_model_interp.T
 
     # Ignore names, works for both power spectrum and correlation function
-    def get_Pi_for_marg(self, ploop, b1, shot_noise, x_data):
+    def get_Pi_for_marg(self, ploop, b1, shot_noise, x_data, growth = None, MinF = False):
 
         if self.pardict["do_marg"]:
 
@@ -864,6 +1007,7 @@ class BirdModel:
                     [
                         [splev(x_data[0], splrep(self.kin, ploop0[:, 19, i])) for i, b in enumerate(b1)],
                         [splev(x_data[1], splrep(self.kin, ploop2[:, 19, i])) for i, b in enumerate(b1)],
+                        # [splev(x_data[1], splrep(self.kin, (2.0/5.0/growth[i])*ploop2[:, 20, i])) for i, b in enumerate(b1)],
                     ],
                     axis1=1,
                     axis2=2,
@@ -948,25 +1092,30 @@ class BirdModel:
 
             if self.pardict["do_corr"]:
 
-                C0 = np.concatenate(
-                    [np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0]), np.zeros(len(x_data[1]))]
-                )  # shot-noise mono
-                C1 = np.concatenate(
-                    [-np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0] ** 2), np.zeros(len(x_data[1]))]
-                )  # k^2 mono
-                C2 = np.concatenate(
-                    [
-                        np.zeros(len(x_data[0])),
-                        np.exp(-self.k_m * x_data[1])
-                        * (3.0 + 3.0 * self.k_m * x_data[1] + self.k_m ** 2 * x_data[1] ** 2)
-                        / (4.0 * np.pi * x_data[1] ** 3),
-                    ]
-                )  # k^2 quad
+                # C0 = np.concatenate(
+                #     [np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0]), np.zeros(len(x_data[1]))]
+                # )  # shot-noise mono
+                # C1 = np.concatenate(
+                #     [-np.exp(-self.k_m * x_data[0]) / (4.0 * np.pi * x_data[0] ** 2), np.zeros(len(x_data[1]))]
+                # )  # k^2 mono
+                # C2 = np.concatenate(
+                #     [
+                #         np.zeros(len(x_data[0])),
+                #         np.exp(-self.k_m * x_data[1])
+                #         * (3.0 + 3.0 * self.k_m * x_data[1] + self.k_m ** 2 * x_data[1] ** 2)
+                #         / (4.0 * np.pi * x_data[1] ** 3),
+                #     ]
+                # )  # k^2 quad
 
-                if self.pardict["do_hex"]:
-                    C0 = np.concatenate([C0, np.zeros(len(x_data[2]))])  # shot-noise mono
-                    C1 = np.concatenate([C1, np.zeros(len(x_data[2]))])  # k^2 mono
-                    C2 = np.concatenate([C2, np.zeros(len(x_data[2]))])  # k^2 quad
+                # if self.pardict["do_hex"]:
+                #     C0 = np.concatenate([C0, np.zeros(len(x_data[2]))])  # shot-noise mono
+                #     C1 = np.concatenate([C1, np.zeros(len(x_data[2]))])  # k^2 mono
+                #     C2 = np.concatenate([C2, np.zeros(len(x_data[2]))])  # k^2 quad
+                
+                # length = np.int32(len(x_data[0]))
+                # Pce1[:length, :] = np.einsum('ij, i -> ij', Pce1[:length, :], self.k_m**2*np.exp(x_data[0]*(1.0 - self.k_m))*shot_noise)
+                # Pcemono[:length, :] = np.einsum('ij, i -> ij',Pcemono[:length, :], self.k_m**2*np.exp(x_data[0]*(1.0 - self.k_m))*shot_noise)
+                # Pcequad[length:2*length, :] = np.einsum('ij, i -> ij',Pcequad[length:2*length, :], np.exp(x_data[1]*(1.0 - self.k_m))*(3.0 + 3.0*self.k_m*x_data[1] + self.k_m**2*x_data[1]**2)/(3.0 + 3.0*x_data[1] + x_data[1]**2))
 
                 Pi = np.array(
                     [
@@ -974,10 +1123,16 @@ class BirdModel:
                         Pcct / self.k_nl ** 2,  # *cct
                         Pcr1 / self.k_m ** 2,  # *cr1
                         Pcr2 / self.k_m ** 2,  # *cr2
-                        np.tile(C0, (len(b1), 1)).T * self.k_m ** 2 * shot_noise,  # ce1
-                        np.tile(C1, (len(b1), 1)).T * self.k_m ** 2 * shot_noise,  # cemono
-                        np.tile(C2, (len(b1), 1)).T * shot_noise,  # cequad
+                        # np.tile(C0, (len(b1), 1)).T * self.k_m ** 2 * shot_noise,  # ce1
+                        # np.tile(C1, (len(b1), 1)).T * self.k_m ** 2 * shot_noise,  # cemono
+                        # np.tile(C2, (len(b1), 1)).T * shot_noise,  # cequad
                         # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
+                        # Pce1*self.k_m**2*np.exp(x_data[0]*(1.0 - self.k_m))*shot_noise,
+                        # Pcemono*self.k_m**2*np.exp(x_data[0]*(1.0 - self.k_m))*shot_noise,
+                        # Pcequad*np.exp(x_data[1]*(1.0 - self.k_m))*(3.0 + 3.0*self.k_m*x_data[1] + self.k_m**2*x_data[1]**2)/(3.0 + 3.0*x_data[1] + x_data[1]**2)
+                        Pce1*shot_noise,
+                        Pcemono*shot_noise,
+                        Pcequad*shot_noise
                     ]
                 )
 
@@ -993,21 +1148,75 @@ class BirdModel:
                     kl2 = np.concatenate([kl2, np.zeros(len(x_data[2]))])  # k^2 quad"""
                     
                 # print(np.shape(Pb3), np.shape(Pcct), np.shape(Pcr1), np.shape(Pcr2), np.shape(Pce1), np.shape(Pcemono), np.shape(Pcequad), shot_noise)
-
-                Pi = np.array(
-                    [
-                        Pb3,  # *b3
-                        Pcct / self.k_nl ** 2,  # *cct
-                        Pcr1 / self.k_m ** 2,  # *cr1
-                        Pcr2 / self.k_m ** 2,  # *cr2
-                        Pce1 * shot_noise,  # *ce1
-                        # Pce1,  # *ce1
-                        Pcemono / self.k_m ** 2 * shot_noise,  # *cemono
-                        Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
-                        # (3.0*Pcequad / self.k_m ** 2 * shot_noise - Pcemono / self.k_m ** 2 * shot_noise)/2.0
-                        # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
-                    ]
-                )
+                
+                if MinF == False:
+                    if self.Nl == 3:
+                        Pi = np.array(
+                            [
+                                Pb3,  # *b3
+                                Pcct / self.k_nl ** 2,  # *cct
+                                Pcr1 / self.k_m ** 2,  # *cr1
+                                Pcr2 / self.k_m ** 2,  # *cr2
+                                Pce1 * shot_noise,  # *ce1
+                                # Pce1,  # *ce1
+                                Pcemono / self.k_m ** 2 * shot_noise,  # *cemono
+                                Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
+                                # (3.0*Pcequad / self.k_m ** 2 * shot_noise - Pcemono / self.k_m ** 2 * shot_noise)/2.0
+                                # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
+                            ]
+                        )
+                    else:
+                        if self.pardict['prior'] == 'MaxF':
+                            Pi = np.array(
+                                [
+                                    Pb3,  # *b3
+                                    Pcct / self.k_nl ** 2,  # *cct
+                                    Pcr1 / self.k_m ** 2,  # *cr1
+                                    Pce1 * shot_noise,  # *ce1
+                                    # Pce1,  # *ce1
+                                    # Pcemono / self.k_m ** 2 * shot_noise,  # *cemono
+                                    Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
+                                    # (3.0*Pcequad / self.k_m ** 2 * shot_noise - Pcemono / self.k_m ** 2 * shot_noise)/2.0
+                                    # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
+                                ]
+                            )
+                        else:
+                            Pi = np.array(
+                                [
+                                    Pb3,  # *b3
+                                    Pcct / self.k_nl ** 2,  # *cct
+                                    Pcr1 / self.k_m ** 2,  # *cr1
+                                    Pce1 * shot_noise,  # *ce1
+                                    # Pce1,  # *ce1
+                                    Pcemono / self.k_m ** 2 * shot_noise,  # *cemono
+                                    Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
+                                    # (3.0*Pcequad / self.k_m ** 2 * shot_noise - Pcemono / self.k_m ** 2 * shot_noise)/2.0
+                                    # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
+                                ]
+                            )
+                else:
+                    if self.Nl == 3:
+                        Pi = np.array(
+                            [
+                                Pcct / self.k_nl ** 2,  # *cct
+                                Pcr1 / self.k_m ** 2,  # *cr1
+                                Pcr2 / self.k_m ** 2,  # *cr2
+                                Pce1 * shot_noise,  # *ce1
+                                # Pce1,  # *ce1
+                                Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
+                                # (3.0*Pcequad / self.k_m ** 2 * shot_noise - Pcemono / self.k_m ** 2 * shot_noise)/2.0
+                                # 2.0 * Pnlo / self.k_m ** 4,  # bnlo
+                            ]
+                        )
+                    else:
+                        Pi = np.array(
+                            [
+                                Pcct / self.k_nl ** 2,  # *cct
+                                Pcr1 / self.k_m ** 2,  # *cr1
+                                Pce1 * shot_noise,  # *ce1
+                                Pcequad / self.k_m ** 2 * shot_noise,  # *cequad
+                            ]
+                        )
 
         else:
 
@@ -1033,21 +1242,48 @@ class BirdModel:
         
         # return result[0]
     
-    def compute_chi2_marginalised(self, P_model, Pi, data, onebin = False, eft_priors = None):
+    def compute_chi2_marginalised(self, P_model, Pi, data, onebin = False, eft_priors = None, MinF = False):
 
 
         Pi = np.transpose(Pi, axes=(2, 0, 1))
         Pimult = np.inner(Pi, data["cov_inv"])
         Covbi = np.einsum("dpk,dqk->dpq", Pimult, Pi)
+        
         # print(np.shape(Covbi))
-        if onebin == False:
-            if eft_priors is None:
-                Covbi += np.diag(1.0 / np.tile(self.eft_priors, len(data["x_data"]))) ** 2
+        # print(np.shape(Covbi))
+        if self.eft_priors is not None:
+            if onebin == False:
+                if eft_priors is None:
+                    Covbi += np.diag(1.0 / np.tile(self.eft_priors, len(data["x_data"]))) ** 2
+                else:
+                    Covbi += np.diag(1.0 / eft_priors)**2
             else:
-                Covbi += np.diag(1.0 / eft_priors)**2
+                Covbi += np.reshape(np.diag(1.0 / np.tile(self.eft_priors, 1)) ** 2, (1, len(self.eft_priors), len(self.eft_priors)))
         else:
-            Covbi += np.reshape(np.diag(1.0 / np.tile(self.eft_priors, 1)) ** 2, (1, len(self.eft_priors), len(self.eft_priors)))
+            # if MinF == False:
+            #     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+            # else:
+            #     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0])]), len(Covbi), axis=0)
             
+            if MinF == False:
+                if self.Nl == 3:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                else:
+                    # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+
+            else:
+                if self.Nl == 3:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                else:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0])]), len(Covbi), axis=0)
+            
+            # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 10e100, 0, 10e100, 0])]), len(Covbi), axis=0)
+
+            # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 10e100, 0, 0])]), len(Covbi), axis=0)
+
+            
+                
         vectorbi = np.einsum("dpk,kd->dp", Pimult, P_model) - np.dot(Pi, data["invcovdata"])
         # vectorbi = np.einsum("dq, qmd->dm",np.einsum("dp,pq->dq", P_model.T, data['cov_inv']), Pi) - np.einsum()
         chi2nomar = (
@@ -1062,18 +1298,35 @@ class BirdModel:
 
         return chi_squared
     
-    def compute_bestfit_analytic(self, P_model, Pi, data, onebin = False, eft_priors = None):
+    def compute_bestfit_analytic(self, P_model, Pi, data, onebin = False, eft_priors = None, MinF=False):
 
         Pi = np.transpose(Pi, axes=(2, 0, 1))
         Pimult = np.inner(Pi, data["cov_inv"])
         Covbi = np.einsum("dpk,dqk->dpq", Pimult, Pi)
-        if onebin == False:
-            if eft_priors is None:
-                Covbi += np.diag(1.0 / np.tile(self.eft_priors, len(data["x_data"]))) ** 2
+        if self.eft_priors is not None:
+            if onebin == False:
+                if eft_priors is None:
+                    Covbi += np.diag(1.0 / np.tile(self.eft_priors, len(data["x_data"]))) ** 2
+                else:
+                    Covbi += np.diag(1.0 / eft_priors)**2
             else:
-                Covbi += np.diag(1.0 / eft_priors)**2
+                Covbi += np.reshape(np.diag(1.0 / np.tile(self.eft_priors, 1)) ** 2, (1, len(self.eft_priors), len(self.eft_priors)))
         else:
-            Covbi += np.reshape(np.diag(1.0 / np.tile(self.eft_priors, 1)) ** 2, (1, len(self.eft_priors), len(self.eft_priors)))
+            # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 10e100, 0, 0, 0])]), len(Covbi), axis=0)
+            # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 10e100, 0, 0])]), len(Covbi), axis=0)
+            if MinF == False:
+                if self.Nl == 3:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                else:
+                    # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+
+            else:
+                if self.Nl == 3:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                else:
+                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0])]), len(Covbi), axis=0)
+
         # Cinvbi = np.linalg.inv(Covbi)
         vectorbi = np.einsum("dpk,kd->dp", Pimult, P_model) - np.dot(Pi, data["invcovdata"])
 
@@ -1259,6 +1512,143 @@ class FittingData:
         except:
             print("Error: Covariance matrix not positive-definite!")
             exit(0)
+            
+        # self.data = self.apply_hartlap_percival(pardict, self.data)
+            
+    def percival_factor(self, redindex, pardict, data, onebin, n_sims):
+        if int(pardict['do_marg']) == 1:
+            nparams = len(pardict['freepar']) + 3 
+        else:
+            nparams = len(pardict['freepar']) + 10
+            
+        # print(nparams)
+            
+        if onebin == False:
+            percival_A = 2.0/((n_sims[redindex] - data["ndata"][0]-1.0)*(n_sims[redindex] - data['ndata'][0]-4.0))
+            percival_B = percival_A/2.0*(n_sims[redindex] - data['ndata'][0]-2.0)
+            percival_m = (1.0+percival_B*(data['ndata'][0] - nparams))/(1.0+percival_A + percival_B*(nparams+1.0))
+        else:
+            percival_A = 2.0/((n_sims - data["ndata"][0]-1.0)*(n_sims - data['ndata'][0]-4.0))
+            percival_B = percival_A/2.0*(n_sims - data['ndata'][0]-2.0)
+            percival_m = (1.0+percival_B*(data['ndata'][0] - nparams))/(1.0+percival_A + percival_B*(nparams+1.0))
+        return percival_m
+            
+    def apply_hartlap_percival(self, pardict, data):
+        n_sims = np.float64(pardict['n_sims'])
+        
+        nz = len(pardict['z_pk'])
+        if nz > 1.5:
+            onebin = False
+        else:
+            onebin = True
+        
+        if onebin == False:
+            hartlap = [(ns - data["ndata"][i] - 2.0) / (ns - 1.0) for i, ns in enumerate(n_sims)]
+            
+            length_all = []
+            for i in range(nz):
+                length = len(data["x_data"][i][0]) + len(data["x_data"][i][1])
+                if pardict['do_hex'] == True:
+                    length += len(data["x_data"][i][2])
+                length_all.append(length)
+                
+            length_start = 0
+            length_end = 0
+            cov_full = []
+            for i in range(nz):
+                if i == 0:
+                    length_start += 0    
+                else:
+                    length_start += length_all[i-1]
+                length_end += length_all[i]
+                
+                hartlap = (n_sims[i] - data["ndata"][0] - 2.0) / (n_sims[i] - 1.0)
+                
+                percival_m = self.percival_factor(i, pardict, data, onebin, n_sims)
+                
+                cov_part = data['cov'][length_start:length_end, length_start:length_end]*percival_m/hartlap
+                
+                cov_full.append(cov_part)
+                
+            cov_new = block_diag(*cov_full)
+            
+            cov_lu, pivots, cov_new_inv, info = lapack.dgesv(cov_new, np.eye(len(cov_new)))
+            
+            fitdata = data['fit_data']
+            
+            chi2data = np.dot(fitdata, np.dot(cov_new_inv, fitdata))
+            
+            invcovdata = np.dot(fitdata, cov_new_inv)
+            
+            data['cov'] = cov_new
+            data['cov_inv'] = cov_new_inv
+            data['chi2data'] = chi2data
+            data['invcovdata'] = invcovdata
+            
+            # cov_new = copy.copy(fittingdata.data['cov'])
+            # for i, (nd, ndcum) in enumerate(
+            #     zip(fittingdata.data["ndata"], np.cumsum(fittingdata.data["ndata"]) - fittingdata.data["ndata"][0])
+            # ):
+            #     cov_new[ndcum : ndcum + nd, ndcum : ndcum + nd] *= percival[i]
+            
+            # cov_inv_new = copy.copy(fittingdata.data["cov_inv"])
+            # for i, (nd, ndcum) in enumerate(
+            #     zip(fittingdata.data["ndata"], np.cumsum(fittingdata.data["ndata"]) - fittingdata.data["ndata"][0])
+            # ):
+            #     cov_inv_new[ndcum : ndcum + nd, ndcum : ndcum + nd] *= hartlap[i]
+            
+            # nz = len(pardict['z_pk'])
+            # keyword = '_all_mean'
+        else:
+            length_all = []
+            for i in range(nz):
+                length = len(data["x_data"][i][0]) + len(data["x_data"][i][1])
+                if pardict['do_hex'] == True:
+                    length += len(data["x_data"][i][2])
+                length_all.append(length)
+            
+            
+            length_start = 0
+            length_end = 0
+            for i in range(1):
+                if i == 0:
+                    length_start += 0    
+                else:
+                    length_start += length_all[i-1]
+                length_end += length_all[i]   
+                
+            print(length_start, length_end)
+            
+            hartlap = (n_sims - data["ndata"][0] - 2.0) / (n_sims - 1.0)
+            print(hartlap)
+            
+            percival_m = self.percival_factor(np.int32(pardict['red_index']), pardict, data, onebin, n_sims)
+            print(percival_m)
+            
+            cov_part = data['cov'][length_start:length_end, length_start:length_end]*percival_m
+            fitdata_part = data['fit_data'][length_start:length_end]
+            
+            cov_lu, pivots, cov_part_inv, info = lapack.dgesv(cov_part, np.eye(len(cov_part)))
+            
+            cov_part_inv = cov_part_inv*hartlap
+            
+            chi2data_part = np.dot(fitdata_part, np.dot(cov_part_inv, fitdata_part))
+            invcovdata_part = np.dot(fitdata_part, cov_part_inv)
+            
+            data['cov'] = cov_part
+            data['cov_inv'] = cov_part_inv
+            data['chi2data'] = chi2data_part
+            data['invcovdata'] = invcovdata_part
+            data['fit_data'] = fitdata_part
+            
+            # nz = 1 
+            
+            # if single_mock == False:
+            #     keyword = '_bin_'+str(redindex) + '_mean'
+            # else:
+            #     keyword = '_bin_'+str(redindex) + '_mock_' + str(mock_num)
+            
+        return data
 
     def read_pk(self, inputfile, step_size, skiprows):
 
@@ -1271,6 +1661,7 @@ class FittingData:
             header=None,
         )
         k = dataframe["k"].values
+        # print(k)
         if step_size == 1:
             k_rebinned = k
             pk0_rebinned = dataframe["pk0"].values
@@ -1314,6 +1705,7 @@ class FittingData:
         # Read in the data
         datafiles = np.loadtxt(pardict["datafile"], ndmin=1, dtype=str)
         nz = len(pardict["z_pk"])
+
         print(datafiles)
         all_xdata = []
         all_ndata = []
@@ -1326,6 +1718,7 @@ class FittingData:
             all_fitmask.append(fitmask)
             all_fit_data.append(fit_data)
         fitmask = np.concatenate(all_fitmask)
+        
         fit_data = np.concatenate(all_fit_data)
 
         """# Read in, reshape and mask the covariance matrix
@@ -1384,73 +1777,82 @@ class FittingData:
         #     # Invert the covariance matrix
         #     cov_lu, pivots, cov_inv, info = lapack.dgesv(cov, np.eye(len(cov)))
         
+        # print(np.shape(cov_input))
+        
         cov = np.delete(np.delete(cov_input, ~fitmask, axis=0), ~fitmask, axis=1)
+        
+        # print(np.shape(cov))
        #     # Invert the covariance matrix
-        cov_lu, pivots, cov_inv, info = lapack.dgesv(cov, np.eye(len(cov)))
+        try:
+            cov_lu, pivots, cov_inv, info = lapack.dgesv(cov, np.eye(len(cov)))
+        except:
+            cov_inv = np.linalg.inv(cov)
 
         chi2data = np.dot(fit_data, np.dot(cov_inv, fit_data))
         invcovdata = np.dot(fit_data, cov_inv)
 
         return all_xdata, all_ndata, fit_data, cov, cov_inv, chi2data, invcovdata, fitmask
     
-    def getxbin_mat(self, pardict, all_xdata):
+    # def getxbin_mat(self, pardict, all_xdata):
         
-        nz = len(pardict['z_pk'])
-        datafiles = np.loadtxt(pardict["datafile"], ndmin=1, dtype=str)
+    #     nz = len(pardict['z_pk'])
+    #     datafiles = np.loadtxt(pardict["datafile"], ndmin=1, dtype=str)
         
-        if int(pardict['do_hex']) == 1:
-            Nl = 3
-        else:
-            Nl = 2
+    #     if int(pardict['do_hex']) == 1:
+    #         Nl = 3
+    #     else:
+    #         Nl = 2
         
-        window_cov = []
-        length_all = []
-        for k in range(nz):
-            data = self.read_pk(datafiles[k], 1, 0)
-            x_data = data[:, 0]
-            length_all.append(len(x_data))
+    #     window_cov = []
+    #     length_all = []
+    #     for k in range(nz):
+    #         data = self.read_pk(datafiles[k], 1, 0)
+    #         x_data = data[:, 0]
+    #         length_all.append(len(x_data))
             
-            window_cov_z = []
-            for j in range(Nl):
-                ks = all_xdata[k][j]
-                dk = ks[-1] - ks[-2]
-                ks_input = x_data
+    #         window_cov_z = []
+    #         for j in range(Nl):
+    #             ks = all_xdata[k][j]
+    #             dk = ks[-1] - ks[-2]
+    #             ks_input = x_data
                 
-                binmat = np.zeros((len(ks), len(ks_input)))
-                for ii in range(len(ks_input)):
+    #             binmat = np.zeros((len(ks), len(ks_input)))
+    #             for ii in range(len(ks_input)):
 
-                    # Define basis vector
-                    pkvec = np.zeros_like(ks_input)
-                    pkvec[ii] = 1
-                    # print(pkvec)
+    #                 # Define basis vector
+    #                 pkvec = np.zeros_like(ks_input)
+    #                 pkvec[ii] = 1
+    #                 # print(pkvec)
 
-                    # Define the spline:
-                    pkvec_spline = splrep(ks_input, pkvec)
+    #                 # Define the spline:
+    #                 pkvec_spline = splrep(ks_input, pkvec)
 
-                    # Now compute binned basis vector:
-                    tmp = np.zeros_like(ks)
-                    for i, kk in enumerate(ks):
-                        kl = kk - dk / 2
-                        kr = kk + dk / 2
-                        kin = np.linspace(kl, kr, 100)
-                        tmp[i] = np.trapz(kin**2 * splev(kin, pkvec_spline, ext=2), x=kin) * 3 / (kr**3 - kl**3)
+    #                 # Now compute binned basis vector:
+    #                 tmp = np.zeros_like(ks)
+    #                 for i, kk in enumerate(ks):
+    #                     kl = kk - dk / 2
+    #                     kr = kk + dk / 2
+    #                     kin = np.linspace(kl, kr, 100)
+    #                     tmp[i] = np.trapz(kin**2 * splev(kin, pkvec_spline, ext=2), x=kin) * 3 / (kr**3 - kl**3)
                         
-                    binmat[:, ii] = tmp
+    #                 binmat[:, ii] = tmp
                     
-                window_cov_z.append(binmat)
+    #             window_cov_z.append(binmat)
             
-            window_cov.append(block_diag(*window_cov_z))
+    #         window_cov.append(block_diag(*window_cov_z))
             
-        return block_diag(*window_cov), length_all
+    #     return block_diag(*window_cov), length_all
 
     def get_some_data(self, pardict, datafile):
 
-        if pardict["do_corr"]:
-            data = np.array(pd.read_csv("datafile", delim_whitespace=True, header=None, comment="#"))
+        if pardict["do_corr"] or pardict["corr_convert"]:
+            data = np.array(pd.read_csv(datafile, delim_whitespace=True, header=None, comment="#"))
         else:
             data = self.read_pk(datafile, 1, 0)
 
         x_data = data[:, 0]
+        
+        # print(x_data, pardict['xfit_min'][0], pardict['xfit_max'][0])
         """fitmask = [
             (np.where(np.logical_and(x_data >= pardict["xfit_min"][0], x_data <= pardict["xfit_max"][0]))[0]).astype(
                 int
@@ -1463,9 +1865,14 @@ class FittingData:
             ),
         ]"""
         ell = 3 if pardict["do_hex"] else 2
-        fitmask = np.array(
-            [np.logical_and(x_data >= pardict["xfit_min"][i], x_data <= pardict["xfit_max"][i]) for i in range(ell)]
-        )
+        if pardict['do_corr'] or pardict["corr_convert"]:
+            fitmask = np.array(
+                [np.logical_and(x_data >= np.float64(pardict["sfit_min"][i]), x_data <= np.float64(pardict["sfit_max"][i])) for i in range(ell)]
+            )
+        else:
+            fitmask = np.array(
+                [np.logical_and(x_data >= pardict["xfit_min"][i], x_data <= pardict["xfit_max"][i]) for i in range(ell)]
+            )
         if not pardict["do_hex"]:
             fitmask = np.concatenate([fitmask, [np.full(len(x_data), False)]])
         x_data = [data[fitmask[i], 0] for i in range(ell)]
@@ -1500,7 +1907,7 @@ def create_plot(pardict, fittingdata, plotindex=0):
         x_data[0],
         plt_data[:nx0],
         yerr=plt_err[:nx0],
-        marker="o",
+        marker="o", 
         markerfacecolor="r",
         markeredgecolor="k",
         color="r",
@@ -1794,10 +2201,13 @@ def format_pardict(pardict):
     pardict["xfit_min"] = np.array(pardict["xfit_min"]).astype(float)
     pardict["xfit_max"] = np.array(pardict["xfit_max"]).astype(float)
     pardict["order"] = int(pardict["order"])
-    pardict["scale_independent"] = True if pardict["scale_independent"].lower() is "true" else False
+    # pardict["scale_independent"] = True if pardict["scale_independent"].lower() is "true" else False
+    pardict["scale_independent"] = True if pardict["scale_independent"].lower() == "true" else False
     pardict["z_pk"] = np.array(pardict["z_pk"], dtype=float)
     if not any(np.shape(pardict["z_pk"])):
         pardict["z_pk"] = [float(pardict["z_pk"])]
+        
+    pardict['corr_convert'] = int(pardict['corr_convert'])
 
     return pardict
 
@@ -1926,3 +2336,4 @@ def get_Planck(filename, nfiles, usecols=(6, 29, 3, 2), raw=False):
     else:
         cov = np.cov(chain, rowvar=False, aweights=weights)
         return np.average(chain, axis=0, weights=weights), cov, np.linalg.inv(cov)
+    

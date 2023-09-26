@@ -81,105 +81,97 @@ def find_bestfit_marg(params):
     return -0.5*chi_squared[0] + priors
 
 
-configfile = '../config/tbird_KP4_LRG.ini'
-pardict = ConfigObj(configfile)
-pardict = format_pardict(pardict)
-keyword = str("Shapefit_mock_mean")
-pardict['datafile'] = '../config/datafiles_KP4_LRG_mean.txt'
-pardict['covfile'] = "../../data/Cov_dk0.005/cov_mean.txt"
+configfile = sys.argv[1]
+plot_flag = int(sys.argv[2])
+Shapefit = bool(int(sys.argv[3])) #Enter 0 for normal template fit and 1 for shapefit. 
+# redindex = int(sys.argv[4])
+# onebin = bool(int(sys.argv[5])) #Enter 1 if you are just using one redshift bin, 0 otherwise. 
+# one_nz = bool(int(sys.argv[6])) #Enter 1 if the input ini file only has one redshift bin, 0 otherwise. 
 onebin = True
-redindex = 0
-Shapefit = True
 one_nz = True
+vary_sigma8 = bool(int(sys.argv[4]))
+# vary_sigma8 = False
+fixedbias = bool(int(sys.argv[5]))
+# resum = bool(int(sys.argv[6])) #Whether to include IR resummation.
+resum = True
+flatprior = bool(int(sys.argv[6]))
+# ncpu = int(sys.argv[7])
 
 try:
-    mock_num = int(sys.argv[5])
-    print("Using one of the mocks.")
-    datafiles = np.loadtxt(pardict['datafile'], dtype=str)
-    mockfile = str(datafiles) + str(mock_num) + '.dat'
-    newfile = '../config/data_mock_' + str(mock_num) + '.txt'
-    text_file = open(newfile, "w")
-    n = text_file.write(mockfile)
-    text_file.close()
-    pardict['datafile'] = newfile
-    single_mock = True
+    mock_num = int(sys.argv[7])
+    mean = False
 except:
-    print("Using the mean of mocks of the same redshift")
-    single_mock = False
-    pardict['datafile'] = '../config/datafiles_KP4_LRG_mean.txt'
-    pardict['covfile'] = "../../data/Cov_dk0.005/cov_mean.txt"
+    mean = True
+
+pardict = ConfigObj(configfile)
+
+# Just converts strings in pardicts to numbers in int/float etc.
+pardict = format_pardict(pardict)
+
+redindex = int(pardict['red_index'])
+
+if Shapefit == True:
+    print("Using shapefit for redshift bin "+str(redindex) +"!")
+    if mean == False:
+        keyword = str("Shapefit_mock_") + str(mock_num)
+        
+        datafiles = np.loadtxt(pardict['datafile'] + '.txt', dtype=str)
+        mockfile = str(datafiles) + str(mock_num) + '.dat'
+        newfile = '../config/data_mock_' + str(mock_num) + '.txt'
+        text_file = open(newfile, "w")
+        n = text_file.write(mockfile)
+        text_file.close()
+        pardict['datafile'] = newfile
+        pardict['covfile'] = pardict['covfile'] + '.txt'
+    else:
+        keyword = str("Shapefit_mock_mean")
+        pardict['datafile'] = pardict['datafile'] + '_mean.txt'
+        # pardict['covfile'] = pardict['covfile'] + '_mean.txt'
+        pardict['covfile'] = pardict['covfile'] + '.txt'
+        # pardict['datafile'] = '../config/datafiles_KP4_LRG_mean.txt'
+        # pardict['covfile'] = "../../data/Cov_dk0.005/cov_mean.txt"
+else:
+    print("Using template fit for redshift bin "+str(redindex) +"!")
+    if mean == False:
+        keyword = str("Templatefit_mock_") + str(mock_num)
+        
+        datafiles = np.loadtxt(pardict['datafile'] + '.txt', dtype=str)
+        mockfile = str(datafiles) + str(mock_num) + '.dat'
+        newfile = '../config/data_mock_' + str(mock_num) + '.txt'
+        text_file = open(newfile, "w")
+        n = text_file.write(mockfile)
+        text_file.close()
+        pardict['datafile'] = newfile
+        pardict['covfile'] = pardict['covfile'] + '.txt'
+    else:
+        keyword = str("Templatefit_mock_mean")
+        # pardict['datafile'] = '../config/datafiles_KP4_LRG_mean.txt'
+        # pardict['covfile'] = "../../data/Cov_dk0.005/cov_mean.txt"
+        pardict['datafile'] = pardict['datafile'] + '_mean.txt'
+        pardict['covfile'] = pardict['covfile'] + '_mean.txt'
+
+if resum == False:
+    try: 
+        keyword = keyword + '_noresum'
+    except:
+        keyword = 'noresum'
+
+# if Shapefit == False:
+#     keyword = keyword + '_template'
+    
+print(np.loadtxt(pardict["gridname"], dtype=str))
+
 
 # Set up the data
 fittingdata = FittingData(pardict)
 
-# n_sims = [978, 1000, 1000]
-n_sims = [1000, 1000, 1000]
 
-if onebin == False:
-    hartlap = [(ns - fittingdata.data["ndata"][i] - 2.0) / (ns - 1.0) for i, ns in enumerate(n_sims)]
-    cov_inv_new = copy.copy(fittingdata.data["cov_inv"])
-    for i, (nd, ndcum) in enumerate(
-        zip(fittingdata.data["ndata"], np.cumsum(fittingdata.data["ndata"]) - fittingdata.data["ndata"][0])
-    ):
-        cov_inv_new[ndcum : ndcum + nd, ndcum : ndcum + nd] *= hartlap[i]
-else:
-    length_all = []
-    for i in range(len(pardict['z_pk'])):
-        length = len(fittingdata.data["x_data"][i][0]) + len(fittingdata.data["x_data"][i][1])
-        if pardict['do_hex'] == True:
-            length += len(fittingdata.data["x_data"][i][2])
-        length_all.append(length)
-    
-    length_start = 0
-    length_end = 0
-    for i in range(np.int32(redindex+1)):
-        if i == 0:
-            length_start += 0    
-        else:
-            length_start += length_all[i-1]
-        length_end += length_all[i]   
-        
-    print(length_start, length_end)
-    
-    hartlap = (n_sims[redindex] - fittingdata.data["ndata"][redindex] - 2.0) / (n_sims[redindex] - 1.0)
-    print(hartlap)
-    
-    nparams = 7.0
-    percival_A = 2.0/((n_sims[redindex] - fittingdata.data["ndata"][redindex]-1.0)*(n_sims[redindex] - fittingdata.data['ndata'][redindex]-4.0))
-    percival_B = percival_A/2.0*(n_sims[redindex] - fittingdata.data['ndata'][redindex]-2.0)
-    percival_m = (1.0+percival_B*(fittingdata.data['ndata'][redindex] - nparams))/(1.0+percival_A + percival_B*(nparams+1.0))
-    print(percival_m)
-    
-    cov_part = fittingdata.data['cov'][length_start:length_end, length_start:length_end]*percival_m
-    fitdata_part = fittingdata.data['fit_data'][length_start:length_end]
-    
-    cov_lu, pivots, cov_part_inv, info = lapack.dgesv(cov_part, np.eye(len(cov_part)))
-    
-    cov_part_inv = cov_part_inv*hartlap
-    
-    chi2data_part = np.dot(fitdata_part, np.dot(cov_part_inv, fitdata_part))
-    invcovdata_part = np.dot(fitdata_part, cov_part_inv)
-    
-    fittingdata.data['cov'] = cov_part
-    fittingdata.data['cov_inv'] = cov_part_inv
-    fittingdata.data['chi2data'] = chi2data_part
-    fittingdata.data['invcovdata'] = invcovdata_part
-    fittingdata.data['fit_data'] = fitdata_part
-    
-    nz = 1 
-    
-    if single_mock == False:
-        keyword = '_bin_'+str(redindex) + '_mean'
-    else:
-        keyword = '_bin_'+str(redindex) + '_mock_' + str(mock_num)
-        
-# fittingdata = FittingData(pardict)
-xdata = [max(x, key=len) for x in fittingdata.data["x_data"]]
-
-
-bestfit = np.array([1.00109181e+00, 9.91803004e-01, 4.54658474e-01, 1.08556290e-03,
-       2.00486628e+00, 1.81208867e+00, 8.35103662e+00
-])
+bestfit = np.array([0.99667112,  1.00899437,  0.42036991, -0.00838645,  1.22938409,
+        0.47674245])
+# bestfit = np.array([0.99709665,  1.00871029,  0.41892234, -0.01453929,  1.22791322,
+#         0.41936005])
+# bestfit = np.array([0.9973149 ,  1.00530617,  0.41853926, -0.01643777,  1.22659964,
+#         0.42956858])
 
 birdmodel_all = []
 for i in range(len(pardict["z_pk"])): 
@@ -217,7 +209,8 @@ for i in range(len(pardict["z_pk"])):
     # birdmodel_i.eft_priors = np.array([4.0, 10.0, 100.0, 100.0, 0.24*shot_noise_ratio_prior, 20.0, 20.0])
     # birdmodel_i.eft_priors = np.array([10.0, 200.0, 2000.0, 2000.0, 2.4*shot_noise_ratio_prior, 50.0, 20.0])
     # birdmodel_i.eft_priors = np.array([2.0, 20.0, 400.0, 400.0, 0.24*shot_noise_ratio_prior, 1.0*shot_noise_ratio_prior, 5.0*shot_noise_ratio_prior])
-    birdmodel_i.eft_priors = np.array([2.0, 20.0, 100.0, 100.0, 0.24*shot_noise_ratio_prior, 2.0*shot_noise_ratio_prior, 4.0*shot_noise_ratio_prior])
+    # birdmodel_i.eft_priors = np.array([2.0, 20.0, 100.0, 100.0, 0.24*shot_noise_ratio_prior, 2.0*shot_noise_ratio_prior, 4.0*shot_noise_ratio_prior])
+    birdmodel_i.eft_priors = np.array([2.0, 2.0, 4.0, 4.0, 0.24*shot_noise_ratio_prior, 2.0*shot_noise_ratio_prior, 2.0*shot_noise_ratio_prior])
 
 
     print(birdmodel_i.eft_priors)
@@ -240,10 +233,16 @@ if len(bestfit) != 14:
     # b2 = (c2+c4)/np.sqrt(2.0)
     # b4 = (c2-c4)/np.sqrt(2.0)
     
-    b1, bp, bd = bias
-    
-    b4 = bd
-    b2 = (bp - bd)/0.86
+    if int(pardict['vary_c4']) == 1:
+        b1, bp, bd = bias
+        
+        b4 = bd
+        b2 = (bp - bd)/0.86
+        
+    else:
+        b1, c2 = bias
+        b2 = c2/np.sqrt(2.0)
+        b4 = b2
     
     margb = 0.0
     bs = np.array(
@@ -301,17 +300,24 @@ if len(bestfit) != 14:
     bs_analytic = birdmodel_all[0].compute_bestfit_analytic(P_model_interp, Pi, fittingdata.data, onebin=onebin)[0, :]
     # # np.save("bs.npy", bs_analytic)
     # print(bs_analytic)
-    
-    bestfit = np.array([bestfit[0], bestfit[1], bestfit[2], bestfit[3], bestfit[4], bestfit[5], bs_analytic[0], bestfit[6], bs_analytic[1], 
-                        bs_analytic[2], bs_analytic[3], bs_analytic[4], bs_analytic[5], bs_analytic[6]])
+    if int(pardict['vary_c4']) == 1:
+        bestfit = np.array([bestfit[0], bestfit[1], bestfit[2], bestfit[3], bestfit[4], bestfit[5], bs_analytic[0], bestfit[6], bs_analytic[1], 
+                            bs_analytic[2], bs_analytic[3], bs_analytic[4], bs_analytic[5], bs_analytic[6]])
+    else:
+        bestfit = np.array([bestfit[0], bestfit[1], bestfit[2], bestfit[3], bestfit[4], bestfit[5], bs_analytic[0], 0.0, bs_analytic[1], 
+                            bs_analytic[2], bs_analytic[3], bs_analytic[4], bs_analytic[5], bs_analytic[6]])
     print(bestfit)
 
 # b2 = (bestfit[5] + bestfit[7]) / np.sqrt(2.0)
 # b4 = (bestfit[5] - bestfit[7]) / np.sqrt(2.0)
 # b2 = bestfit[5] - bestfit[7]
 # b4 = bestfit[7]
-b4 = bestfit[7]
-b2 = (bestfit[5] - bestfit[7])/0.86
+if int(pardict['vary_c4']) == 1:
+    b4 = bestfit[7]
+    b2 = (bestfit[5] - bestfit[7])/0.86
+else:
+    b2 = (bestfit[5] + bestfit[7])/np.sqrt(2.0)
+    b2 = (bestfit[5] - bestfit[7])/np.sqrt(2.0)
 
 bs = np.array(
     [
@@ -345,8 +351,10 @@ Ploop = np.transpose(Ploop, axes=[1, 3, 2, 0])
 
 P_model_lin, P_model_loop, P_model_interp = birdmodel_all[0].compute_model(bs, Plin, Ploop, fittingdata.data["x_data"][0])
 
+np.save("SF_pk_ELG_0p22.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
+# np.save("FS_pk_fiducial_ELG.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
 # np.save("SF_bestfit.npy", P_model_interp)
-print(np.float64(pardict['xfit_max']), np.int16(pardict['do_marg']))
+# print(np.float64(pardict['xfit_max']), np.int16(pardict['do_marg']))
 
 chi_squared = birdmodel_all[0].compute_chi2(P_model_interp, fittingdata.data)
 print(chi_squared)

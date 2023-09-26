@@ -14,6 +14,9 @@ from scipy import interpolate, signal
 import scipy as sp
 import copy
 from nbodykit import cosmology
+from findiff import FinDiff
+from scipy.interpolate import CubicSpline
+from scipy.optimize import bisect
 
 # sys.path.append("../")
 # from tbird.Grid import run_camb, run_class
@@ -187,8 +190,193 @@ def format_pardict(pardict):
     
 #     return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_fAmp*(h/h_fid)**1.5, mslope_dash, mslope_new])
 
+def dewiggle(k_lin, Pk_lin, n = 10, kmin = 0.01, kmax = 1.0, return_k = False):
+    
+    from scipy.fftpack import dst, idst
+    from findiff import FinDiff
+    from scipy.signal import find_peaks
+    
+    Pk = CubicSpline(np.log(k_lin), np.log(Pk_lin))
+    length = 2**n
+
+    k = np.linspace(kmin, kmax, length)
+    logkPk = Pk(np.log(k)) + np.log(k)
+    
+    Pk_dst = dst(logkPk, norm='ortho')
+
+    Pk_dst_even = Pk_dst[0:][::2]
+
+    Pk_dst_odd = Pk_dst[1:][::2]
+    
+    n_range = np.arange(0, length)
+
+    n_even = n_range[0:][::2]
+
+    n_odd = n_range[1:][::2]
+    
+    Pk_spline_even = CubicSpline(n_even, Pk_dst_even)(np.linspace(n_even[0], n_even[-1], 2*length))
+    Pk_spline_odd = CubicSpline(n_odd, Pk_dst_odd)(np.linspace(n_odd[0], n_odd[-1], 2*length))
+    
+    # dn = 2
+    
+    dn_even = np.linspace(n_even[0], n_even[-1], 2*length)[1] - np.linspace(n_even[0], n_even[-1], 2*length)[0]
+    dn_odd = np.linspace(n_odd[0], n_odd[-1], 2*length)[1] - np.linspace(n_odd[0], n_odd[-1], 2*length)[0]
+    
+    d2_dn2_even = FinDiff(0, dn_even, 2, acc=10)
+    d2_dn2_odd = FinDiff(0, dn_odd, 2, acc=10)
+    
+    dpkeven_dn = np.interp(n_even, np.linspace(n_even[0], n_even[-1], 2*length), d2_dn2_even(Pk_spline_even))
+    dpkodd_dn = np.interp(n_odd, np.linspace(n_odd[0], n_odd[-1], 2*length), d2_dn2_odd(Pk_spline_odd))
+    
+    # d2_dn2 = FinDiff(0, dn, 2, acc = 10)
+    
+    # dpkeven_dn = d2_dn2(Pk_dst_even)
+
+    # dpkodd_dn = d2_dn2(Pk_dst_odd)
+    
+    peaks_even = find_peaks(dpkeven_dn)[0]
+
+    peaks_odd = find_peaks(dpkodd_dn)[0]
+    
+    trough_even = find_peaks(-dpkeven_dn)[0]
+
+    trough_odd = find_peaks(-dpkodd_dn)[0]
+    
+    i_min_even = trough_even[0] - 3
+
+    i_min_odd = trough_odd[0] - 3
+    
+    i_max_even = peaks_even[1] + 10
+
+    i_max_odd = peaks_odd[1] + 20
+    
+    Pk_dst_even_scale = (n_even + 1)**2*Pk_dst_even
+
+    Pk_dst_odd_scale = (n_odd + 1)**2*Pk_dst_odd
+
+    remove_even = np.arange(i_min_even, i_max_even+1)
+
+    remove_odd = np.arange(i_min_odd, i_max_odd+1)
+    
+    Pk_dst_even_scale_del = np.delete(Pk_dst_even_scale, remove_even)
+
+    Pk_dst_odd_scale_del = np.delete(Pk_dst_odd_scale, remove_odd)
+
+    n_even_del = np.delete(n_even, remove_even)
+
+    n_odd_del = np.delete(n_odd, remove_odd)
+    
+    pk_even = CubicSpline(n_even_del, Pk_dst_even_scale_del)
+
+    pk_odd = CubicSpline(n_odd_del, Pk_dst_odd_scale_del)
+
+    even_pk = pk_even(n_even)/(n_even+1)**2
+
+    odd_pk = pk_odd(n_odd)/(n_odd+1)**2
+
+    dst_pk = np.zeros(length)
+
+    dst_pk[n_even] = even_pk
+
+    dst_pk[n_odd] = odd_pk
+
+    nw_logkpk = idst(dst_pk, norm = 'ortho')
+
+    Pk_nw = np.exp(nw_logkpk - np.log(k))
+    
+    if return_k == False:
+        return Pk_nw
+    else:
+        return Pk_nw, k
+    
+def smooth_wallisch2018(ks, pk, ii_l=None, ii_r=None, extrap_min=1e-5, extrap_max=10, N=16):
+    """Implement the wiggle/no-wiggle split procedure from Benjamin Wallisch's thesis (arXiv:1810.02800)"""
+    
+    from scipy.fftpack import dst, idst
+    from scipy.ndimage import gaussian_filter
+    from scipy.signal import argrelmin, argrelmax
+
+    # put onto a linear grid
+    kgrid = np.linspace(extrap_min, extrap_max, 2**N)
+    lnps = interpolate.InterpolatedUnivariateSpline(ks, np.log(ks * pk), ext=0)(kgrid)
+
+    # sine transform
+    dst_ps = dst(lnps)
+    dst_odd = dst_ps[1::2]
+    dst_even = dst_ps[0::2]
+
+    # find the BAO regions
+    if ii_l is None or ii_r is None:
+        d2_even = np.gradient(np.gradient(dst_even))
+        ii_l = argrelmin(gaussian_filter(d2_even, 4))[0][0]
+        ii_r = argrelmax(gaussian_filter(d2_even, 4))[0][1]
+
+        iis = np.arange(len(dst_odd))
+        iis_div = np.copy(iis)
+        iis_div[0] = 1.0
+        cutiis_even = (iis > (ii_l - 3)) * (iis < (ii_r + 10))
+
+        d2_odd = np.gradient(np.gradient(dst_odd))
+        ii_l = argrelmin(gaussian_filter(d2_odd, 4))[0][0]
+        ii_r = argrelmax(gaussian_filter(d2_odd, 4))[0][1]
+
+        iis = np.arange(len(dst_odd))
+        iis_div = np.copy(iis)
+        iis_div[0] = 1.0
+        cutiis_odd = (iis > (ii_l - 3)) * (iis < (ii_r + 20))
+
+    else:
+        iis = np.arange(len(dst_odd))
+        iis_div = np.copy(iis)
+        iis_div[0] = 1.0
+        cutiis_odd = (iis > ii_l) * (iis < ii_r)
+        cutiis_even = (iis > ii_l) * (iis < ii_r)
+
+    # ... and interpolate over them
+    interp_odd = interpolate.interp1d(iis[~cutiis_odd], (iis**2 * dst_odd)[~cutiis_odd], kind="cubic")(iis) / iis_div**2
+    interp_odd[0] = dst_odd[0]
+
+    interp_even = interpolate.interp1d(iis[~cutiis_even], (iis**2 * dst_even)[~cutiis_even], kind="cubic")(iis) / iis_div**2
+    interp_even[0] = dst_even[0]
+
+    # Transform back
+    interp = np.zeros_like(dst_ps)
+    interp[0::2] = interp_even
+    interp[1::2] = interp_odd
+
+    lnps_nw = idst(interp) / 2**17
+
+    return interpolate.InterpolatedUnivariateSpline(kgrid, np.exp(lnps_nw) / kgrid, ext=1)(ks)
+    
+def smooth_hinton2017(ks, pk, degree=13, sigma=1, weight=0.5, **kwargs):
+    """Smooth power spectrum based on Hinton 2017 polynomial method"""
+    # logging.debug("Smoothing spectrum using Hinton 2017 method")
+    log_ks = np.log(ks)
+    log_pk = np.log(pk)
+    index = np.argmax(pk)
+    maxk2 = log_ks[index]
+    if sigma < 0.001:
+        gauss = 0.0
+    else:
+        gauss = np.exp(-0.5 * np.power(((log_ks - maxk2) / sigma), 2))
+    w = np.ones(pk.size) - weight * gauss
+    z = np.polyfit(log_ks, log_pk, degree, w=w)
+    p = np.poly1d(z)
+    polyval = p(log_ks)
+    pk_smoothed = np.exp(polyval)
+    return pk_smoothed
+
 def grid_params(pardict, params):
-    ln10As, h, omega_cdm, omega_b = params[:4]
+    if with_w0 == True:
+        ln10As, h, omega_cdm, omega_b, w = params[:5]
+    elif with_w0_wa == True:
+        ln10As, h, omega_cdm, omega_b, w, wa = params[:6]
+    elif with_omegak == True:
+        ln10As, h, omega_cdm, omega_b, omegak = params[:5]
+    else:
+        ln10As, h, omega_cdm, omega_b = params[:4]
+        
+    print(params)
     
     A_s = np.exp(ln10As)/1.0e10
     H_0 = 100.0*h
@@ -197,11 +385,29 @@ def grid_params(pardict, params):
     
     z_data = float(pardict["z_pk"][0])
     
-    # from nbodykit import cosmology
-    cosmo = cosmology.cosmology.Cosmology(h = h, Omega0_b = omega_b/h**2, Omega0_cdm = omega_cdm/h**2, 
-                                          N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
-                                          A_s = A_s, N_ncdm = int(pardict["N_ncdm"]), Omega_k = float(pardict["Omega_k"]), 
-                                          tau_reio = float(pardict["tau_reio"]), P_z_max = z_data)
+    if with_w0 == True:
+        cosmo = cosmology.cosmology.Cosmology(h = h, Omega0_b = omega_b/h**2, Omega0_cdm = omega_cdm/h**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = A_s, N_ncdm = int(pardict["N_ncdm"]), Omega_k = float(pardict["Omega_k"]), 
+                                              tau_reio = float(pardict["tau_reio"]), P_z_max = z_data, Omega0_lambda = 0.0, w0_fld = w)
+                
+    elif with_w0_wa == True:
+        cosmo = cosmology.cosmology.Cosmology(h = h, Omega0_b = omega_b/h**2, Omega0_cdm = omega_cdm/h**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = A_s, N_ncdm = int(pardict["N_ncdm"]), Omega_k = float(pardict["Omega_k"]), 
+                                              tau_reio = float(pardict["tau_reio"]), P_z_max = z_data, Omega0_lambda = 0.0, w0_fid = w, wa_fld = wa)
+        
+    elif with_omegak == True:
+        cosmo = cosmology.cosmology.Cosmology(h = h, Omega0_b = omega_b/h**2, Omega0_cdm = omega_cdm/h**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = A_s, N_ncdm = int(pardict["N_ncdm"]), Omega_k = omegak, 
+                                              tau_reio = float(pardict["tau_reio"]), P_z_max = z_data)
+    else:
+        # from nbodykit import cosmology
+        cosmo = cosmology.cosmology.Cosmology(h = h, Omega0_b = omega_b/h**2, Omega0_cdm = omega_cdm/h**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = A_s, N_ncdm = int(pardict["N_ncdm"]), Omega_k = float(pardict["Omega_k"]), 
+                                              tau_reio = float(pardict["tau_reio"]), P_z_max = z_data)
     # EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*h_fid*r_d_fid/(rd*h))
     
     # cosmo = cosmology.cosmology.Cosmology(h = 0.6736, Omega0_b = 0.02237/0.6736**2, Omega0_cdm = 0.12/0.6736**2, 
@@ -219,10 +425,28 @@ def grid_params(pardict, params):
             "N_ur": float(pardict["N_ur"]),
             "N_ncdm": int(pardict["N_ncdm"]),
             "m_ncdm": pardict["m_ncdm"],
-            "Omega_k": float(pardict["Omega_k"]),
             "tau_reio": float(pardict["tau_reio"]),
         }
     )
+    
+    if "w" in pardict.keys():
+        M.set(
+            {"Omega_Lambda": 0.0,
+             "w0_fld": w
+                })
+        if "wa" in pardict.keys():
+            M.set(
+                {"wa_fld": wa
+                })
+    if with_omegak == True:
+        M.set({
+        "Omega_k": omegak})
+        
+    else:
+        M.set({
+        "Omega_k": float(pardict["Omega_k"])})
+            
+            
     M.set(
         {
             "output": "mPk, dTk",
@@ -234,52 +458,143 @@ def grid_params(pardict, params):
     
     DM_at_z = M.angular_distance(z_data) * (1. + z_data)
     H_at_z = M.Hubble(z_data) * conts.c / 1000.0
-    rd = M.rs_drag()
+    rd = M.rs_drag()*h
     
-    theo_fAmp_dash = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv*h_fid*r_d_fid/(rd),z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid_dash
+    # EH98_new  = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/(rd))**2
+    # kmpiv_new = kmpiv*h_fid*r_d_fid/rd/h
+    # kmpiv_CLASS_new = kmpiv_CLASS*h_fid*r_d_fid/rd/h
+    # kmpiv_EH98_new = kmpiv_EH98*h_fid*r_d_fid/rd/h
+    
+    kmpiv_CLASS_new = kmpiv_CLASS*r_d_fid/rd
+    # kmpiv_EH98_new = kmpiv_EH98*r_d_fid/rd
+    # print(kmpiv_CLASS_new, kmpiv_EH98_new)
+    
+    # kmpiv_new = bisect(CubicSpline(kvec, FinDiff(0, np.log(kvec), 2, acc=10)(np.log(EH98_new/EH98_fid))), 0.01, 0.1)
+    # print(kmpiv_new, 0.02*h_fid*r_d_fid/rd/h)
+    # kmpiv_dash = 0.02*h_fid*r_d_fid/rd/h
+    
+    # print(M.scale_independent_growth_factor(z_data), cosmo.scale_independent_growth_factor(z_data))
+    
+    theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h_fid,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
+    # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_EH98_new*h,z_data)*(h_fid*r_d_fid/(rd))**3.)/Amp_fid
+
+    
+    # theo_fAmp1 = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([M.pk_lin(ratio_i*kmpiv_new*h,z_data) for ratio_i in ratio])*(h*r_d_fid/(rd))**3.)/Amp_fid_1
+    # theo_fAmp2 = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([M.pk_lin(ratio_i*kmpiv_new*h,z_data) for ratio_i in ratio_flip])*(h*r_d_fid/(rd))**3.)/Amp_fid_2
+ 
+    # theo_fAmp3 = np.mean((theo_fAmp1*theo_fAmp2)**(1/2.0))
+    
+    # print(theo_fAmp3)
     
     # theo_fAmp_prime = M.scale_independent_growth_factor_f(z_data)*np.sqrt(EH98(kmpiv/h_fid*h*r_d_fid/rd, z_data, 1.0, M)*(r_d_fid/rd)**3)/Amp_fid_prime
     
-    theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt((r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, 
-                                                                                                       transfer='NoWiggleEisensteinHu')(kmpiv*h_fid/h*r_d_fid/rd))/Amp_fid
+    # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt((r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, 
+    #                                                                                                     transfer='NoWiggleEisensteinHu')(kmpiv_CLASS_new))/Amp_fid
     # print(kmpiv/h_fid*h*r_d_fid/rd, (r_d_fid/rd)**3, np.sqrt(cosmology.power.linear.LinearPower(cosmo, z_data, 
     #                                                                                                    transfer='NoWiggleEisensteinHu')(kmpiv/h_fid*h*r_d_fid/rd)))
     
-    theo_aperp = (DM_at_z) / DM_fid / rd * r_d_fid
-    theo_apara = H_z_fid/ (H_at_z) / rd * r_d_fid
+    theo_aperp = (DM_at_z) / DM_fid / (rd/h) * (r_d_fid/h_fid)
+    theo_apara = H_z_fid/ (H_at_z) / (rd/h) * (r_d_fid/h_fid)
+    
+    # print((r_d_fid/h_fid)/(rd/h), DM_at_z/DM_fid, H_z_fid/H_at_z)
 
     
     f = M.scale_independent_growth_factor_f(z_data)
     sigma8 = M.sigma(8.0 / M.h(), z_data)
+    sigma_s8 = M.sigma(rd/r_d_fid*8.0/M.h(), z_data)
     
-    EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*h_fid*r_d_fid/(rd*h))
+    # EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*h_fid*r_d_fid/(rd*h))
+    EHpk = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/(rd))**2
+    if int(pardict["N_ncdm"]) > 0:
+        Plin = (r_d_fid/rd)**3*np.array([M.pk_cb_lin(ki * M.h(), z_data) * M.h() ** 3 for ki in kvec*r_d_fid/rd])
+    else:
+        Plin = (r_d_fid/rd)**3*np.array([M.pk_lin(ki * M.h(), z_data) * M.h() ** 3 for ki in kvec*r_d_fid/rd])
     
-    EHpk_dash = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*h_fid*r_d_fid/(rd*h))
+    # Plin = (r_d_fid/rd)**3*np.array([M.pk_lin(ki * M.h(), z_data) * M.h() ** 3 for ki in kvec*r_d_fid/rd])
+        
+    # np.save('Plin_w_' + str(w) + '.npy', Plin)
+    EHpk_prime = smooth_wallisch2018(kvec*r_d_fid/rd, Plin)
+    EHpk_dash = smooth_hinton2017(kvec*r_d_fid/rd, Plin)
+    # EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*r_d_fid/(rd))
+
     
-    EH98_new  = (r_d_fid/rd)**3*EH98(kvec*h_fid*r_d_fid/(rd*h), redshift=z_data, scaling_factor=1.0, cosmo=M)
+    # EHpk_dash = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*h_fid*r_d_fid/(rd*h))
+    # EHpk_dash = (r_d_fid/rd)**3*np.array([M.pk_lin(kveci*h_fid*r_d_fid/rd, z_data) for kveci in kvec])*(h)**3
+    # EHpk_dash, k_new = dewiggle(kvec*h_fid/h*r_d_fid/rd, np.array([M.pk_lin(kveci*h_fid*r_d_fid/rd, z_data) for kveci in kvec])*h**3, n=12, return_k=True)
+    # EHpk_dash = (r_d_fid/rd)**3*EHpk_dash/Primordial(k_new, A_s, float(pardict["n_s"]))
+    # EHpk_dash = (r_d_fid/rd)**3*EHpk_dash*(h_fid/h)**3
+    # print(len(EHpk_dash)
     
-    theo_fAmp_prime = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.interp(kmpiv*h_fid/h*r_d_fid/rd, kvec*h_fid*r_d_fid/(rd*h), EH98_new))/Amp_fid_prime
-    
-    # print(np.interp(kmpiv*h_fid*r_d_fid/(rd*h), kvec, EH98_new), cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kmpiv*h_fid/h*r_d_fid/rd), M.pk_lin(kmpiv*h_fid*r_d_fid/(rd),z_data)*h**3)
-    
+    kstart = np.argmin(np.abs(kvec-0.01))
+    kend = np.argmin(np.abs(kvec-0.1))
     Pk_ratio = EHpk
     
-    Pkshape_ratio_prime = slope_at_x(np.log(kvec),np.log(Pk_ratio/Pk_ratio_fid))
-    theo_mslope = np.interp(kmpiv, kvec, Pkshape_ratio_prime)
+    Pkshape_ratio = slope_at_x(np.log(kvec[kstart:kend]),np.log(Pk_ratio[kstart:kend]/Pk_ratio_fid[kstart:kend]))
+    # Pkshape_ratio_prime = slope_at_x(kvec,np.log(Pk_ratio/Pk_ratio_fid))
+    theo_mslope = np.interp(kmpiv_CLASS, kvec[kstart:kend], Pkshape_ratio)
     
-    Pkshape_ratio_dash = slope_at_x(np.log(kvec), np.log(EHpk_dash/transfer_fid_dash))
-    theo_mslope_dash = np.interp(kmpiv, kvec, Pkshape_ratio_dash)
+    # Pkshape_ratio_dash = slope_at_x(np.log(kvec), np.log(EHpk_dash/transfer_fid_dash))
+    # Pkshape_ratio_dash = slope_at_x(np.log(k_new), np.log(EHpk_dash/transfer_fid_dash))
+    # Pkshape_ratio_dash = slope_at_x(np.log(kvec), np.log((r_d_fid*h_fid/rd/h)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*h_fid*r_d_fid/(rd*h))**2/transfer_fid_dash))
+    # theo_mslope_dash = np.interp(kmpiv_EH98, kvec, Pkshape_ratio_dash)
+    # theo_mslope_dash = np.interp(kmpiv_CLASS_new, k_new, Pkshape_ratio_dash)
+
+    # d_dx = FinDiff(0, (kvec)[1] - (kvec)[0], 1, acc=10)
+    # ratio_prime = d_dx(np.log(Pk_ratio/Pk_ratio_fid))
+    # theo_mslope_new = np.interp(kmpiv_CLASS, kvec, ratio_prime)*kmpiv_CLASS
+    # np.save('Plin_no_wiggle_w_' + str(np.int32(np.floor(-(w+0.7)/0.074))) + '.npy', EHpk_dash/EH98_dash_fid)
+    Pkshape_ratio_dash = slope_at_x(np.log(kvec[kstart:kend]), np.log(EHpk_dash[kstart:kend]/EH98_dash_fid[kstart:kend]))
+    theo_mslope_new = np.interp(kmpiv_CLASS, kvec[kstart:kend], Pkshape_ratio_dash)
     
-    Pkshape_ratio_new = slope_at_x(np.log(kvec), np.log(EH98_new/EH98_fid))
-    theo_mslope_new = np.interp(kmpiv, kvec, Pkshape_ratio_new)
+    Pkshape_ratio_prime = slope_at_x(np.log(kvec[kstart:kend]), np.log(np.divide(EHpk_prime[kstart:kend], EH98_prime_fid[kstart:kend], out = np.ones_like(EHpk_prime[kstart:kend]), where = EH98_prime_fid[kstart:kend]!=0)))
+    theo_mslope_prime = np.interp(kmpiv_CLASS, kvec[kstart:kend], Pkshape_ratio_prime)
+
+    # print(np.min(Pk_ratio), np.min(EHpk_dash), np.min(EHpk_prime))
     
-    print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_fAmp_prime, theo_mslope_new)
+    # np.save('test.npy', [Pk_ratio, EHpk_dash, EHpk_prime])
     
-    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_fAmp_prime ,theo_mslope_new])
+    # Pkshape_ratio_new = slope_at_x(np.log(kvec), np.log(EH98_new/EH98_fid))
+    
+    # theo_mslope_new = np.interp(kmpiv_CLASS, kvec, Pkshape_ratio_new)
+    
+    # print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8/fsigma8_fid, theo_mslope_dash, theo_fAmp_dash, theo_fAmp_prime, theo_mslope_new)
+    
+    # return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_fAmp_prime ,theo_mslope_new])
+    
+    # factor = -0.2269*(rd/r_d_fid)**2 + 0.6676*(rd/r_d_fid) + 0.5595
+    
+    # factor = (rd/r_d_fid)**0.22144
+    # sigma8_sq = (theo_fAmp*factor*fsigma8_fid/M.scale_independent_growth_factor_f(z_data)/sigma8_fid)**2
+    
+    # m = -0.6*np.log(Pk_ratio[682]/Pk_ratio_fid[682]/sigma8_sq)
+    
+    print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, f*sigma_s8/fsigma8_fid)
+    
+    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, f*sigma_s8/fsigma8_fid])
     
     # print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_mslope_new)
     
     # return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_mslope_new])
+    
+# def find_new_kmpiv(gamma_eff, kvec):
+#     ktest = np.linspace(0.001, 1.0, 8192)
+#     model = CubicSpline(kvec, gamma_eff)(ktest)
+#     result = FinDiff(0, ktest[1] - ktest[0], 1, acc=10)(model)
+#     return ktest[np.argmin(result)]
+
+def EH98_kmpiv(cosmo):
+    h = cosmo.h()
+    Obh2 = cosmo.Omega_b()*h**2
+    Omh2 = cosmo.Omega_m()*h**2
+    sound_horizon = h * 44.5 * np.log(9.83/Omh2) / \
+    np.sqrt(1 + 10 * Obh2** 0.75) # in Mpc/h
+    
+    return np.sqrt(np.sqrt(15.0)/5.0)*100.0/43.0/sound_horizon
+
+def CLASS_kmpiv(cosmo):
+    rd = cosmo.rs_drag()*cosmo.h()
+    return np.sqrt(np.sqrt(15.0)/5.0)*100.0/43.0/rd
+    
 
 def EH98(kvector, redshift, scaling_factor, cosmo = None):
     #This code calculate the EH98 no-wiggle power spectrum using the same formula in Nbodykit but with the sould horizon and equality from CLASS. 
@@ -292,6 +607,7 @@ def EH98(kvector, redshift, scaling_factor, cosmo = None):
     #as with the Nbodykit. 
     #--------------------------------------------------------------------------
     # theta_cmb = cosmo.T_cmb() / 2.7
+    # # print(theta_cmb)
 
     # # wavenumber of equality
     # k_eq = 0.0746 * Omh2 * theta_cmb ** (-2) # units of 1/Mpc
@@ -300,6 +616,8 @@ def EH98(kvector, redshift, scaling_factor, cosmo = None):
     #                     np.sqrt(1 + 10 * Obh2** 0.75) # in Mpc/h
     # alpha_gamma = 1 - 0.328 * np.log(431*Omh2) * f_baryon + \
     #                     0.38* np.log(22.3*Omh2) * f_baryon ** 2
+                        
+    # rd = sound_horizon
     #--------------------------------------------------------------------------
                         
     
@@ -309,8 +627,8 @@ def EH98(kvector, redshift, scaling_factor, cosmo = None):
     
     #We obtain the sound horizon and equality k vector from CLASS. Comment this block if you want to use the same approximation as in the Nbodykit.  
     #--------------------------------------------------------------------------
-    k_eq = cosmo.k_eq()
-    rd = cosmo.rs_drag()*h
+    k_eq = cosmo.k_eq()*scaling_factor
+    rd = cosmo.rs_drag()*h/scaling_factor
     alpha_gamma = 1 - 0.328 * np.log(431*Omh2) * f_baryon + 0.38* np.log(22.3*Omh2) * f_baryon ** 2
     #--------------------------------------------------------------------------
     
@@ -321,6 +639,7 @@ def EH98(kvector, redshift, scaling_factor, cosmo = None):
     q = k/(13.41*k_eq)
     
     gamma_eff = Omh2 * (alpha_gamma + (1 - alpha_gamma) / (1 + (0.43*ks) ** 4))
+    # print(find_new_kmpiv(gamma_eff, kvector), np.sqrt(np.sqrt(15.0)/5.0)*100.0/43.0/rd)
     q_eff = q * Omh2 / gamma_eff
     L0 = np.log(2*np.e + 1.8 * q_eff)
     C0 = 14.2 + 731.0 / (1 + 62.5 * q_eff)
@@ -362,7 +681,8 @@ def EH98(kvector, redshift, scaling_factor, cosmo = None):
     
     return Pk
     
-    # return T*cosmo.scale_independent_growth_factor(redshift)
+    # return (T*cosmo.scale_independent_growth_factor(redshift))**2
+    # return T**2
                             
     
 def sigma_r(Pk, k, r):
@@ -386,7 +706,7 @@ def sigma_r(Pk, k, r):
     Parameters
     ----------
     Pk : float, array_like
-         The unnormlaized power spectrum 
+          The unnormlaized power spectrum 
     k : float, array_like
         The k array in h/Mpc for the input power spectrum. 
     r : float
@@ -419,9 +739,10 @@ def sigma_r(Pk, k, r):
 #         # OmLambda_at_z = (1.0-Omm)/(Omm*(1+redshift)**3 + (1.0-Omm))
 #         ns = cosmo.n_s()
 #         rs = cosmo.rs_drag()*h/scaling_factor
-#         # rs = 44.5*np.log(9.83/Omm)/np.sqrt(1.0 + 10*(Omb*h**2)**(0.75))*cosmo.h()
+#         # rs = 44.5*np.log(9.83/Omm/h**2)/np.sqrt(1.0 + 10*(Omb*h**2)**(0.75))*cosmo.h()
         
 #         # theta_cmb = cosmo.T_cmb()/2.7
+#         # A_N0_Nm = (2.32 + 0.56*cosmo.Neff())**(-1.0)
         
 #         Omnu = Omm-Omb-Omc
 #         fnu = Omnu/Omm
@@ -436,7 +757,8 @@ def sigma_r(Pk, k, r):
 #         # Omr = Omg * (1. + Neff * (7./8.)*(4./11.)**(4./3.))
 #         # aeq = Omr/(Omb+Omc)/(1-fnu)
 #         # zeq = 1./aeq -1.
-#         # # zeq = 2.50*10**4*Omm*h**2*theta_cmb**(-4.0)
+#         # zeq = 2.50*10**4*Omm*h**2*theta_cmb**(-4.0) - 1.0
+#         # zeq = A_N0_Nm*10**5*Omm*h**2*theta_cmb**(-4.0) - 1.0
         
         
 #         # Heq = cosmo.Hubble(zeq)
@@ -449,6 +771,8 @@ def sigma_r(Pk, k, r):
         
 #         # print(keq, 7.46*10**(-2)*Omm*h**2*theta_cmb**(-2.0))
 #         # keq = 7.46*10**(-2)*Omm*h**2*theta_cmb**(-2.0)
+#         # keq = 0.1492*Omm*h**2*theta_cmb**(-2.0)*np.sqrt(A_N0_Nm)
+
 #         zd = cdict['z_d']
 #         # Ommh = Omm*h**2
 #         # b1 = 0.313*(Ommh)**(-0.419)*(1.0+0.607*Ommh**0.674)
@@ -488,11 +812,11 @@ def sigma_r(Pk, k, r):
 #     #alpha_gamma = 1 - 0.328*np.log(431*Omm*h**2)*Omb/Omm + 0.38*np.log(22.3*Omm*h**2)*(Omb/Omm)**2
     
 #     #There seems to be a mistake in this equation. 
-#     # alpha_nu = fc/fcb * (5 - 2*(pc+pcb))/(5-4*pcb) * (1-0.553*fnub + 0.126*fnub**3.) / (1 - 0.193*np.sqrt(fnu)*Nnu**0.2 + 0.169*fnu) \
-#     #             *(1.+yd)**(pcb-pc) * (1+(pc-pcb)/2*(1+1./(3-4*pc)/(7-4*pcb))*(1.+yd)**(-1.))
+#     alpha_nu = fc/fcb * (5 - 2*(pc+pcb))/(5-4*pcb) * (1-0.553*fnub + 0.126*fnub**3.) / (1 - 0.193*np.sqrt(fnu)*Nnu**0.2 + 0.169*fnu) \
+#                 *(1.+yd)**(pcb-pc) * (1+(pc-pcb)/2*(1+1./(3-4*pc)/(7-4*pcb))*(1.+yd)**(-1.))
     
-#     alpha_nu = fc/fcb * (5 - 2*(pc+pcb))/(5-4*pcb) * (1.0-0.553*fnub + 0.126*fnub**3.) / (1.0 - 0.193*np.sqrt(fnu*Nnu) + 0.169*fnu*(Nnu)**0.2) \
-#                 *(1.+yd)**(pcb-pc) * (1.0+(pc-pcb)/2.0*(1.+1./(3-4*pc)/(7-4*pcb))*(1.+yd)**(-1.))
+#     # alpha_nu = fc/fcb * (5 - 2*(pc+pcb))/(5-4*pcb) * (1.0-0.553*fnub + 0.126*fnub**3.) / (1.0 - 0.193*np.sqrt(fnu*Nnu) + 0.169*fnu*(Nnu)**0.2) \
+#     #             *(1.+yd)**(pcb-pc) * (1.0+(pc-pcb)/2.0*(1.+1./(3-4*pc)/(7-4*pcb))*(1.+yd)**(-1.))
                 
 #     #eff_shape = (alpha_gamma + (1.-alpha_gamma)/(1+(0.43*kvector*rs)**4.))
 #     eff_shape = (np.sqrt(alpha_nu) + (1.-np.sqrt(alpha_nu))/(1.+(0.43*kvector*rs)**4.))
@@ -521,13 +845,14 @@ def sigma_r(Pk, k, r):
 #     #
 #     Tcbnu = T0*Dcbnu/D1*Bk
 #     # Tcbnu = T0*Bk
-#     deltah = 1.94e-5 * Omm**(-0.785-0.05*np.log(Omm))*np.exp(-0.95*(ns-1)-0.169*(ns-1)**2.)
+#     # deltah = 1.94e-5 * Omm**(-0.785-0.05*np.log(Omm))*np.exp(-0.95*(ns-1)-0.169*(ns-1)**2.)
     
 #     # growth = D1**2/((1.+zeq)*5.*Omm/2./(Omm**(4./7.)-(1.0-Omm)+(1.+Omm/2.0)*((1.0 + 1.0 - Omm)/70.)))**2
     
 #     #The output power spectrum will be in the unit of (Mpc/h)^3. 
 #     if cosmo is not None:
-#         Pk = 2*np.pi**2. * deltah**2. * (kvector)**(ns) * Tcbnu**2. * growth**2. /cosmo.Hubble(0)**(3.+ns)
+#         # Pk = 2*np.pi**2. * deltah**2. * (kvector)**(ns) * Tcbnu**2. * growth**2. /cosmo.Hubble(0)**(3.+ns)
+#         Pk = Tcbnu**2
 #         # Pk = Tcbnu**2. * growth**2
 #     # else:
 #     #     Pk = 2*np.pi**2. * deltah**2. * (kvector)**(ns) * Tcbnu**2. * growth**2. /Hubble**(3.+ns)
@@ -700,16 +1025,16 @@ if __name__ == "__main__":
     # Just converts strings in pardicts to numbers in int/float etc.
     pardict = format_pardict(pardict)
     
-    #This is in h/Mpc. 
-    kmpiv = 0.03
-    
-    kvec = np.logspace(-5.0, 1.0, 1024)
+    # kvec = np.logspace(-5.0, 1.0, 1024)
+    kvec = np.linspace(1e-5, 10.0, 1024*8)
     
     z_data = np.float64(pardict["z_pk"])[0]
     
     job_total = np.int32((2.0*float(pardict['order']) + 1.0)**(len(pardict['dx'])))
     
     length = np.int32(job_total/job_total_num)
+    
+    print(job_total, length)
     
     start = job_num*length
     
@@ -727,6 +1052,29 @@ if __name__ == "__main__":
     omega_cdm_all = np.linspace(omega_cdm - order*dx[2], omega_cdm + order*dx[2], 2*order+1)
     omega_b_all = np.linspace(omega_b - order*dx[3], omega_b + order*dx[3], 2*order+1)
     
+    with_w0 = False
+    with_w0_wa = False
+    with_omegak = False
+    if "w" in pardict.keys():
+        w = float(pardict['w'])
+        with_w0 = True
+        keyword = '_w0'
+        w_all = np.linspace(w - order*dx[4], w + order*dx[4], 2*order+1)
+        if "wa" in pardict.keys():
+            wa = float(pardict['wa'])
+            with_w0 = False
+            with_w0_wa = True
+            keyword = '_w0_wa'
+            wa_all = np.linspace(wa - order*dx[5], wa + order*dx[5], 2*order+1)
+            
+    elif pardict['freepar'][-1] == 'Omega_k':
+        with_omegak = True
+        omegak = float(pardict['Omega_k'])
+        keyword = '_omegak'
+        omegak_all = np.linspace(omegak - order*dx[4], omegak + order*dx[4], 2*order+1)
+            
+    
+    
     template = Class()
     
     template.set({
@@ -742,6 +1090,16 @@ if __name__ == "__main__":
     "tau_reio": float(pardict["tau_reio"]),
      })
     
+    if "w" in pardict.keys():
+        template.set(
+            {"Omega_Lambda": 0.0,
+             "w0_fld": float(pardict["w"])
+                })
+        if "wa" in pardict.keys():
+            template.set(
+                {"wa_fld": float(pardict["wa"])
+                })
+    
     template.set({
         "output": "mPk, dTk",
         "P_k_max_1/Mpc": float(pardict["P_k_max_h/Mpc"]),
@@ -752,20 +1110,53 @@ if __name__ == "__main__":
     
     h_fid = template.h()
     H_z_fid = template.Hubble(z_data)*conts.c/1000.0
-    r_d_fid = template.rs_drag()
+    r_d_fid = template.rs_drag()*h_fid
     DM_fid = template.angular_distance(z_data)*(1.0+z_data)
     
-    Amp_fid_dash = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_lin(kmpiv*h_fid,z_data)*h_fid**3)
+    #This is in h/Mpc. 
+    # kmpiv = 0.03
+    # kmpiv_test = 0.02
+    # kmpiv = np.pi/r_d_fid/h_fid
+    # kmpiv = 0.02
+    # kmpiv_EH98 = EH98_kmpiv(template)
+    # kmpiv_EH98 = 0.036
+    kmpiv_CLASS = float(pardict['factor_kp'])
+    # kmpiv_CLASS = CLASS_kmpiv(template)
+    # kmpiv_EH98 = 0.030
+    # kmpiv_CLASS = 0.030
+    # print(kmpiv_EH98, kmpiv_CLASS)
     
-    cosmo_fid = cosmology.cosmology.Cosmology(h = float(pardict['h']), Omega0_b = float(pardict['omega_b'])/float(pardict['h'])**2, 
+    # ratio = np.linspace(0.9, 1.0, 11)
+    # ratio_flip = ratio**-1
+    
+    Amp_fid = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_lin(kmpiv_CLASS*h_fid,z_data)*h_fid**3)
+    
+    # Amp_fid_1 = template.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([template.pk_lin(ratio_i*kmpiv*h_fid,z_data) for ratio_i in ratio])*h_fid**3)
+    # Amp_fid_2 = template.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([template.pk_lin(ratio_i*kmpiv*h_fid,z_data) for ratio_i in ratio_flip])*h_fid**3)
+    
+    if with_w0 == True:
+        cosmo_fid = cosmology.cosmology.Cosmology(h = float(pardict['h']), Omega0_b = float(pardict['omega_b'])/float(pardict['h'])**2, 
+                                              Omega0_cdm = float(pardict['omega_cdm'])/float(pardict['h'])**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = np.exp(float(pardict["ln10^{10}A_s"]))/1e10, N_ncdm = int(pardict["N_ncdm"]), 
+                                              Omega_k = float(pardict["Omega_k"]), tau_reio = float(pardict["tau_reio"]), P_z_max = z_data, Omega0_lambda = 0.0, 
+                                              w0_fld = float(pardict['w']))
+    elif with_w0_wa == True:
+        cosmo_fid = cosmology.cosmology.Cosmology(h = float(pardict['h']), Omega0_b = float(pardict['omega_b'])/float(pardict['h'])**2, 
+                                              Omega0_cdm = float(pardict['omega_cdm'])/float(pardict['h'])**2, 
+                                              N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
+                                              A_s = np.exp(float(pardict["ln10^{10}A_s"]))/1e10, N_ncdm = int(pardict["N_ncdm"]), 
+                                              Omega_k = float(pardict["Omega_k"]), tau_reio = float(pardict["tau_reio"]), P_z_max = z_data, Omega0_lambda = 0.0,
+                                              w0_fld = float(pardict['w']), wa_fld = float(pardict['wa']))
+    else:
+        cosmo_fid = cosmology.cosmology.Cosmology(h = float(pardict['h']), Omega0_b = float(pardict['omega_b'])/float(pardict['h'])**2, 
                                           Omega0_cdm = float(pardict['omega_cdm'])/float(pardict['h'])**2, 
                                           N_ur = float(pardict["N_ur"]), P_k_max = float(pardict["P_k_max_h/Mpc"]), n_s = float(pardict["n_s"]), 
                                           A_s = np.exp(float(pardict["ln10^{10}A_s"]))/1e10, N_ncdm = int(pardict["N_ncdm"]), 
-                                          Omega_k = float(pardict["Omega_k"]), 
-                                          tau_reio = float(pardict["tau_reio"]), P_z_max = z_data)
+                                          Omega_k = float(pardict["Omega_k"]), tau_reio = float(pardict["tau_reio"]), P_z_max = z_data)
     
-    Amp_fid = template.scale_independent_growth_factor_f(z_data)*np.sqrt(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict['z_pk'])[0], 
-                                                                                                            transfer='NoWiggleEisensteinHu')(kmpiv))
+    # Amp_fid = template.scale_independent_growth_factor_f(z_data)*np.sqrt(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict['z_pk'])[0], 
+    #                                                                                                         transfer='NoWiggleEisensteinHu')(kmpiv_CLASS))
     
     # Amp_fid_prime = template.scale_independent_growth_factor_f(z_data)*np.sqrt(EH98(kmpiv, np.float64(pardict["z_pk"])[0], 1.0, template))
     # print(np.sqrt(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict['z_pk'])[0], 
@@ -784,18 +1175,38 @@ if __name__ == "__main__":
     # np.save('Class_pk.npy', pk_class_fid)
     
     # transfer_fid = EH98_transfer(kvec, z_data, 1.0, cosmo = template)
-    transfer_fid = cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')(kvec)
-    transfer_fid_dash = cosmology.power.transfers.NoWiggleEisensteinHu(cosmo_fid, np.float64(pardict["z_pk"])[0])(kvec)
+    # transfer_fid = cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')(kvec)
+    transfer_fid = cosmology.power.transfers.NoWiggleEisensteinHu(cosmo_fid, z_data)(kvec)**2
+    # transfer_fid_dash = cosmology.power.transfers.NoWiggleEisensteinHu(cosmo_fid, np.float64(pardict["z_pk"])[0])(kvec)
+    # transfer_fid_dash = np.array([template.pk_lin(kveci*h_fid, z_data) for kveci in kvec])*(h)**3
+    # transfer_fid_dash, k_new_fid = dewiggle(kvec, np.array([template.pk_lin(kveci*h, z_data)*(h)**3 for kveci in kvec]), n=12, return_k=True)
+    # transfer_fid_dash = transfer_fid_dash/Primordial(k_new_fid*h, np.exp(float(pardict["ln10^{10}A_s"]))/1e10, float(pardict["n_s"]))
+    transfer_fid_dash = transfer_fid
+    # print(len(transfer_fid_dash))
     
-    EH98_fid = EH98(kvec, z_data, 1.0, cosmo=template)
-    
-    Amp_fid_prime = template.scale_independent_growth_factor_f(z_data)*np.sqrt(np.interp(kmpiv, kvec, EH98_fid))
+    # EH98_fid = EH98(kvec, z_data, 1.0, cosmo=template)
+    EH98_fid = cosmology.power.transfers.NoWiggleEisensteinHu(cosmo_fid, z_data)(kvec)**2
+    if int(pardict["N_ncdm"]) > 0:
+        Plin = np.array([template.pk_cb_lin(ki * template.h(), z_data) * template.h() ** 3 for ki in kvec])
+    else:
+        Plin = np.array([template.pk_lin(ki * template.h(), z_data) * template.h() ** 3 for ki in kvec])
+    # Plin = np.array([template.pk_lin(ki * template.h(), z_data) * template.h() ** 3 for ki in kvec])
+        
+    EH98_prime_fid = smooth_wallisch2018(kvec, Plin)
+    EH98_dash_fid = smooth_hinton2017(kvec, Plin)
 
+    
+    # Amp_fid_prime = template.scale_independent_growth_factor_f(z_data)*np.sqrt(CubicSpline(kvec, EH98_fid)(kmpiv_CLASS))
+    # Amp_fid_prime = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_lin(kmpiv_CLASS*h_fid, z_data)*h_fid**3)
+    
+    # Amp_fid_dash = template.scale_independent_growth_factor_f(z_data)*np.sqrt(CubicSpline(k_new_fid, transfer_fid_dash)(kmpiv_CLASS))
+
+    # Amp_fid_dash = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_lin(kmpiv_CLASS*h_fid, z_data)*h_fid**3)
     
     # transfer_scale_fid = interpolate.interp1d(kvec, transfer_fid, kind='cubic', fill_value='extrapolate')(kvec*h_fid)
     
     fsigma8_fid = template.scale_independent_growth_factor_f(z_data)*template.sigma(8.0/template.h(), z_data)
-    
+    sigma8_fid = template.sigma(8.0/template.h(), z_data)
     
     # transfer_class_all = template.get_transfer(z=z_data)
     # k_class = transfer_class_all['k (h/Mpc)']
@@ -817,12 +1228,16 @@ if __name__ == "__main__":
     
     Pk_ratio_fid = transfer_fid
     # print(Amp_fid, fsigma8_fid)
+    print(fsigma8_fid)
     # print(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')._sigma8/np.sqrt(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')._norm))
     
+    # np.save('test_AP.npy', [kvec, Plin/EH98_dash_fid])
     # print(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')._norm, cosmo_fid.sigma8)
 
     # np.save('test.npy', [transfer_fid, EH98_fid])
-    print(Amp_fid_prime, Amp_fid, Amp_fid_dash)
+    # print(Amp_fid_prime, Amp_fid, Amp_fid_dash, np.pi/r_d_fid/h_fid)
+    
+    # np.save('dew_plin.npy', [kvec, transfer_fid_dash])
     
     # birdmodel_fid = BirdModel(pardict, template=True, direct=True, fittingdata=fittingdata, window = str(fittingdata.data["windows"]), Shapefit=True)
     
@@ -846,6 +1261,35 @@ if __name__ == "__main__":
     # np.save('Pctl.npy', Pctl_fid)
     # np.save('Ploopl.npy', Ploopl_fid)
     
+    # all_cosmo_params = []
+    # for i in range(6561):
+    #     index = i
+
+    #     index_As, remainder = divmod(index, np.int32((2*order+1)**(nparams - 1)))
+    #     index_h, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-2)))
+    #     index_cdm, index_b = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+
+    #     params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
+    #     all_cosmo_params.append(params)
+    # all_cosmo_params = np.array(all_cosmo_params)
+    
+    # data = []
+    # for i in range(81):
+    #     index = 40 + 81*i
+    #     index_As, remainder = divmod(index, np.int32((2*order+1)**(nparams - 1)))
+    #     index_h, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-2)))
+    #     index_cdm, index_b = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+        
+    #     params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
+        
+    #     print(params)
+        
+    #     output = grid_params(pardict, params)
+    #     data.append(output)
+    # np.save('output.npy', data)
+    
+    # np.save('test.npy', [Pk_ratio_fid, EH98_dash_fid, EH98_prime_fid])
+    
     all_params = []
     
     for i in range(length):
@@ -853,11 +1297,25 @@ if __name__ == "__main__":
     
         index_As, remainder = divmod(index, np.int32((2*order+1)**(nparams - 1)))
         index_h, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-2)))
-        index_cdm, index_b = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
         
-        params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
+        if with_w0 == True:
+            index_cdm, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+            index_b, index_w = divmod(remainder, np.int32((2*order+1)**(nparams-4)))
+            params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b], w_all[index_w]])
+        elif with_w0_wa == True:
+            index_cdm, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+            index_b, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-4)))
+            index_w, index_wa = divmod(remainder, np.int32((2*order+1)**(nparams-5)))
+            params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b], w_all[index_w], wa_all[index_wa]])
+        elif with_omegak == True:
+            index_cdm, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+            index_b, index_omegak = divmod(remainder, np.int32((2*order+1)**(nparams-4)))
+            params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b], omegak_all[index_omegak]])
+        else:
+            index_cdm, index_b = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+            params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
         
-        print(params)
+        # print(params)
         
         output = grid_params(pardict, params)
         
@@ -865,4 +1323,7 @@ if __name__ == "__main__":
 
     all_params = np.array(all_params) 
     
-    np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + ".npy", all_params)
+    if with_w0 == True or with_w0_wa == True or with_omegak == True:
+        np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + keyword + 'bin_' + str(pardict['red_index']) + ".npy", all_params)
+    else:
+        np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index']) + ".npy", all_params)
