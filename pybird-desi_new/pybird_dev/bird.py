@@ -139,18 +139,19 @@ class Bird(object):
             self.bloop = np.empty(shape=(self.co.Nloop))
 
         if self.with_stoch:
-            # if self.co.with_cf: # no stochastic term for cf in general ; below is the stochastic terms from a Pade expansion of the Fourier-space stochastic terms
-            #     self.bst = np.zeros(shape=(self.co.Nst))
-            #     self.Cstl = np.zeros(shape=(self.co.Nl, self.co.Nst, self.co.Ns))
-            #     self.Cstl[0,0] = np.exp(-self.co.km * self.co.s) * self.co.km**2 / (4.*np.pi*self.co.s) / self.co.nd
-            #     self.Cstl[0,1] = -self.co.km**2*np.exp(-self.co.km * self.co.s) / (4.*np.pi*self.co.s**2) / self.co.nd
-            #     self.Cstl[0,2] = np.exp(-self.co.km * self.co.s) * (3.+3.*self.co.km*self.co.s+self.co.km**2*self.co.s**2) / (4.*np.pi*self.co.s**3) / self.co.nd
-            # else:
-            self.bst = np.zeros(shape=(self.co.Nst))
-            self.Pstl = np.zeros(shape=(self.co.Nl, self.co.Nst, self.co.Nk))
-            self.Pstl[0, 0] = self.co.k ** 0 / self.co.nd
-            self.Pstl[0, 1] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
-            self.Pstl[1, 2] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
+            if self.co.with_cf: # no stochastic term for cf in general ; below is the stochastic terms from a Pade expansion of the Fourier-space stochastic terms
+                self.bst = np.zeros(shape=(self.co.Nst))
+                self.Cstl = np.zeros(shape=(self.co.Nl, self.co.Nst, self.co.Ns))
+                self.Cstl[0,0] = np.exp(-self.co.km * self.co.s) * self.co.km**2 / (4.*np.pi*self.co.s) / self.co.nd
+                self.Cstl[0,1] = -self.co.km**2*np.exp(-self.co.km * self.co.s) / (4.*np.pi*self.co.s**2) / self.co.nd
+                self.Cstl[1,2] = np.exp(-self.co.km * self.co.s) * (3.+3.*self.co.km*self.co.s+self.co.km**2*self.co.s**2) / (4.*np.pi*self.co.s**3) / self.co.nd
+            else:
+                self.bst = np.zeros(shape=(self.co.Nst))
+                self.Pstl = np.zeros(shape=(self.co.Nl, self.co.Nst, self.co.Nk))
+                self.Pstl[0, 0] = self.co.k ** 0 / self.co.nd
+                # self.Pstl[1, 0] = self.co.k ** 0 / self.co.nd
+                self.Pstl[0, 1] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
+                self.Pstl[1, 2] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
             # self.Pstl[0, 0] = self.co.k ** 0 / self.co.nd
             # self.Pstl[0, 1] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
             # self.Pstl[1, 1] = self.co.k ** 2 / self.co.km ** 2 / self.co.nd
@@ -709,7 +710,7 @@ class Bird(object):
             + np.einsum("lb,lbx->lx", self.b13, self.C13l)
             + np.einsum("l,lx->lx", self.bct, self.Cct)
         )
-        # if self.with_stoch: self.Cf[1] += np.einsum('b,lbx->lx', self.bst, self.Cstl) # no stochastic term for Cf
+        if self.with_stoch: self.Cf[1] += np.einsum('b,lbx->lx', self.bst, self.Cstl) # no stochastic term for Cf
         if self.with_nnlo_counterterm:
             self.Cf[2] = np.einsum("l,lx->lx", self.cnnlo, self.Cnnlo)
         if setfull:
@@ -1500,7 +1501,7 @@ class Bird(object):
         if self.co.Nloop == 12:
             Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploopl), axis=0)
         elif self.co.Nloop == 22:
-            Ploop1 = np.empty(shape=(self.co.Nl, 12, np.shape(Ploopl)[-1]))
+            Ploop1 = np.zeros(shape=(self.co.Nl, 12, np.shape(Ploopl)[-1]))
             # Ploop1[:, 0] = (
             #     self.f ** 2 * self.Ploopl[:, 0] + self.f ** 3 * self.Ploopl[:, 1] + self.f ** 4 * self.Ploopl[:, 2]
             # )  # *1
@@ -1545,97 +1546,7 @@ class Bird(object):
 
         return Plin, Ploop
     
-    def formatShapefitPs(self, kdata=None, Ps=None):
-        """ An auxiliary to pipe PyBird with TBird: puts Bird(object) power spectrum multipole terms into the right shape for TBird """
-
-        allk = (
-            np.concatenate([self.co.k for i in range(self.co.Nl)]).reshape(-1, 1, 1)
-            if kdata is None
-            else np.concatenate([[kdata for i in range(self.co.Nl)]]).reshape(-1, 1, 1)
-        )
-        # if Ps is None:
-        #     P11l, Ploopl, Pctl = self.P11l, self.Ploopl, self.Pctl
-        # else:
-        #     P11l, Ploopl, Pctl = Ps
-        
-        if Ps is None:
-            P11l, Ploopl, Pctl, Pstl = self.P11l, self.Ploopl, self.Pctl, self.Pstl
-        else:
-            P11l, Ploopl, Pctl, Pstl = Ps
-            
-        # print(np.shape(P11l), np.shape(Ploopl), np.shape(Pctl))
-        
-        num = len(self.f)
-        
-        # Plin = np.flip(np.einsum("n,lnk->lnk", np.array([1.0, 2.0 * self.f, self.f ** 2]), P11l), axis=1)
-        # Plin = np.concatenate(np.einsum("lnk->lkn", Plin), axis=0)
-        # Plin = np.hstack((allk, Plin))
-        
-        Plin = np.flip(np.einsum("na, alnk->alnk", np.array([np.ones(num), 2.0 * self.f, self.f ** 2]), P11l), axis=2)
-        Plin = np.concatenate(np.einsum("alnk-> lkna", Plin), axis = 0)
-        Plin = np.hstack((np.tile(allk, [1, 1, num]), Plin))
-        
-        
-        Ploop2 = np.einsum("na,alnk->alnk", np.array([2.0*np.ones(num), 2.0*np.ones(num), 2.0*np.ones(num), 2.0 * self.f, 2.0 * self.f, 2.0 * self.f]), Pctl)
-        # Ploop2 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, 1.0, 1.0 * self.f, 1.0 * self.f, 1.0 * self.f]), Pctl)
-
-        Ploop2 = np.concatenate(np.einsum("alnk->lkna", Ploop2), axis=0)
-        
-        if self.co.Nloop == 12:
-            Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploopl), axis=0)
-        elif self.co.Nloop == 22:
-            # Ploop1 = np.empty(shape=(self.co.Nl, 12, np.shape(Ploopl)[-1]))
-            Ploop1 = np.zeros((num, self.co.Nl, 12, np.shape(Ploopl)[-1]))
-            # Ploop1[:, 0] = (
-            #     self.f ** 2 * self.Ploopl[:, 0] + self.f ** 3 * self.Ploopl[:, 1] + self.f ** 4 * self.Ploopl[:, 2]
-            # )  # *1
-            # Ploop1[:, 1] = (
-            #     self.f * self.Ploopl[:, 3] + self.f ** 2 * self.Ploopl[:, 4] + self.f ** 3 * self.Ploopl[:, 5]
-            # )  # *b1
-            # Ploop1[:, 2] = self.f * self.Ploopl[:, 6] + self.f ** 2 * self.Ploopl[:, 7]  # *b2
-            # Ploop1[:, 3] = self.f * self.Ploopl[:, 8]  # *b3
-            # Ploop1[:, 4] = self.f * self.Ploopl[:, 9] + self.f ** 2 * self.Ploopl[:, 10]  # *b4
-            # Ploop1[:, 5] = self.Ploopl[:, 11] + self.f * self.Ploopl[:, 12] + self.f ** 2 * self.Ploopl[:, 13]  # *b1*b1
-            # Ploop1[:, 6] = self.Ploopl[:, 14] + self.f * self.Ploopl[:, 15]  # *b1*b2
-            # Ploop1[:, 7] = self.Ploopl[:, 16]  # *b1*b3
-            # Ploop1[:, 8] = self.Ploopl[:, 17] + self.f * self.Ploopl[:, 18]  # *b1*b4
-            # Ploop1[:, 9] = self.Ploopl[:, 19]  # *b2*b2
-            # Ploop1[:, 10] = self.Ploopl[:, 20]  # *b2*b4
-            # Ploop1[:, 11] = self.Ploopl[:, 21]  # *b4*b4
-            
-            self.f = self.f.reshape((num, 1, 1))
-            
-            Ploop1[:, :, 0] = (
-                self.f ** 2 * Ploopl[:, :, 0] + self.f ** 3 * Ploopl[:, :, 1] + self.f ** 4 * Ploopl[:, :, 2]
-            )  # *1
-            Ploop1[:, :, 1] = (
-                self.f * Ploopl[:, :, 3] + self.f ** 2 * Ploopl[:, :, 4] + self.f ** 3 * Ploopl[:, :, 5]
-            )  # *b1
-            Ploop1[:, :, 2] = self.f * Ploopl[:, :, 6] + self.f ** 2 * Ploopl[:, :, 7]  # *b2
-            Ploop1[:, :, 3] = self.f * Ploopl[:, :, 8]  # *b3
-            Ploop1[:, :, 4] = self.f * Ploopl[:, :, 9] + self.f ** 2 * Ploopl[:, :, 10]  # *b4
-            Ploop1[:, :, 5] = Ploopl[:, :, 11] + self.f * Ploopl[:, :, 12] + self.f ** 2 * Ploopl[:, :, 13]  # *b1*b1
-            Ploop1[:, :, 6] = Ploopl[:, :, 14] + self.f * Ploopl[:, :, 15]  # *b1*b2
-            Ploop1[:, :, 7] = Ploopl[:, :, 16]  # *b1*b3
-            Ploop1[:, :, 8] = Ploopl[:, :, 17] + self.f * Ploopl[:, :, 18]  # *b1*b4
-            Ploop1[:, :, 9] = Ploopl[:, :, 19]  # *b2*b2
-            Ploop1[:, :, 10] = Ploopl[:, :, 20]  # *b2*b4
-            Ploop1[:, :, 11] = Ploopl[:, :, 21]  # *b4*b4
-            # Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploop1), axis=0)
-            Ploop1 = np.concatenate(np.einsum("alnk->lkna", Ploop1), axis=0)
-            
-        Ploop3 = np.einsum("na,alnk->alnk", np.array([np.ones(num), np.ones(num), np.ones(num)]), Pstl)
-        # Ploop3 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, self.f]), Pstl)
-        
-        Ploop3 = np.concatenate(np.einsum("alnk->lkna", Ploop3), axis=0)
-        Ploop = np.hstack((np.tile(allk, [1, 1, num]), Ploop1, Ploop2, Ploop3))
-        
-        Plin = np.swapaxes(np.reshape(Plin, (self.co.Nl, Plin.shape[-3]//self.co.Nl, Plin.shape[-2], num))[:, :, 1:], axis1=1, axis2=2)
-        Ploop = np.swapaxes(np.reshape(Ploop, (self.co.Nl, Ploop.shape[-3]//self.co.Nl, Ploop.shape[-2], num))[:, :, 1:], axis1=1, axis2=2)
-
-        return Plin[:3], Ploop[:3]
-
-    def formatTaylorCf(self, sdata=None, CFs=None):
+    def formatTaylorCf(self, sdata=None, CF=None):
         """ An auxiliary to pipe PyBird with TBird: puts Bird(object) power spectrum multipole terms into the right shape for TBird """
 
         allk = (
@@ -1643,54 +1554,171 @@ class Bird(object):
             if sdata is None
             else np.concatenate([[sdata for i in range(self.co.Nl)]]).reshape(-1, 1)
         )
-        if CFs is None:
-            C11l, Cloopl, Cctl, Cnlol = self.C11l, self.Cloopl, self.Cctl, self.Cnlol
+        
+        if CF is None:
+            C11l, Cloopl, Cctl, Cstl = self.C11l, self.Cloopl, self.Cctl, self.Cstl
         else:
-            C11l, Cloopl, Cctl, Cnlol = CFs
+            C11l, Cloopl, Cctl, Cstl = CF
 
         Plin = np.flip(np.einsum("n,lnk->lnk", np.array([1.0, 2.0 * self.f, self.f ** 2]), C11l), axis=1)
         Plin = np.concatenate(np.einsum("lnk->lkn", Plin), axis=0)
         Plin = np.hstack((allk, Plin))
-        if self.co.Nloop is 12:
+        if self.co.Nloop == 12:
             Ploop1 = np.concatenate(np.einsum("lnk->lkn", Cloopl), axis=0)
-        elif self.co.Nloop is 22:
-            Ploop1 = np.einsum(
-                "n,lnk->lnk",
-                np.array(
-                    [
-                        self.f ** 2,
-                        self.f ** 3,
-                        self.f ** 4,
-                        self.f,
-                        self.f ** 2,
-                        self.f ** 3,
-                        self.f,
-                        self.f ** 2,
-                        self.f,
-                        self.f,
-                        self.f ** 2,
-                        1.0,
-                        self.f,
-                        self.f ** 2,
-                        1.0,
-                        self.f,
-                        1.0,
-                        1.0,
-                        self.f,
-                        1.0,
-                        1.0,
-                        1.0,
-                    ]
-                ),
-                Cloopl,
-            )
+        elif self.co.Nloop == 22:
+            # Ploop1 = np.einsum(
+            #     "n,lnk->lnk",
+            #     np.array(
+            #         [
+            #             self.f ** 2,
+            #             self.f ** 3,
+            #             self.f ** 4,
+            #             self.f,
+            #             self.f ** 2,
+            #             self.f ** 3,
+            #             self.f,
+            #             self.f ** 2,
+            #             self.f,
+            #             self.f,
+            #             self.f ** 2,
+            #             1.0,
+            #             self.f,
+            #             self.f ** 2,
+            #             1.0,
+            #             self.f,
+            #             1.0,
+            #             1.0,
+            #             self.f,
+            #             1.0,
+            #             1.0,
+            #             1.0,
+            #         ]
+            #     ),
+            #     Cloopl,
+            # )
+            
+            Ploop1 = np.zeros((self.co.Nl, 12, np.shape(Cloopl)[-1]))
+            Ploop1[:, 0] = (
+                self.f ** 2 * Cloopl[:, 0] + self.f ** 3 * Cloopl[:, 1] + self.f ** 4 * Cloopl[:, 2]
+            )  # *1
+            Ploop1[:, 1] = (
+                self.f * Cloopl[:, 3] + self.f ** 2 * Cloopl[:, 4] + self.f ** 3 * Cloopl[:, 5]
+            )  # *b1
+            Ploop1[:, 2] = self.f * Cloopl[:, 6] + self.f ** 2 * Cloopl[:, 7]  # *b2
+            Ploop1[:, 3] = self.f * Cloopl[:, 8]  # *b3
+            Ploop1[:, 4] = self.f * Cloopl[:, 9] + self.f ** 2 * Cloopl[:, 10]  # *b4
+            Ploop1[:, 5] = Cloopl[:, 11] + self.f * Cloopl[:, 12] + self.f ** 2 * Cloopl[:, 13]  # *b1*b1
+            Ploop1[:, 6] = Cloopl[:, 14] + self.f * Cloopl[:, 15]  # *b1*b2
+            Ploop1[:, 7] = Cloopl[:, 16]  # *b1*b3
+            Ploop1[:, 8] = Cloopl[:, 17] + self.f * Cloopl[:, 18]  # *b1*b4
+            Ploop1[:, 9] = Cloopl[:, 19]  # *b2*b2
+            Ploop1[:, 10] = Cloopl[:, 20]  # *b2*b4
+            Ploop1[:, 11] = Cloopl[:, 21]  # *b4*b4
+            
+            
             Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploop1), axis=0)
         Ploop2 = np.einsum("n,lnk->lnk", np.array([2.0, 2.0, 2.0, 2.0 * self.f, 2.0 * self.f, 2.0 * self.f]), Cctl)
         Ploop2 = np.concatenate(np.einsum("lnk->lkn", Ploop2), axis=0)
+        
+        Ploop3 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, 1.0]), Cstl)
+        # Ploop3 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, self.f]), Pstl)
+        Ploop3 = np.concatenate(np.einsum("lnk->lkn", Ploop3), axis=0)
+        Ploop = np.hstack((allk, Ploop1, Ploop2, Ploop3))
 
-        Ploop = np.hstack((allk, Ploop1, Ploop2))
+        # Ploop = np.hstack((allk, Ploop1, Ploop2))
         return Plin, Ploop
 
+    # def formatShapefitPs(self, kdata=None, Ps=None):
+    #     """ An auxiliary to pipe PyBird with TBird: puts Bird(object) power spectrum multipole terms into the right shape for TBird """
+
+    #     allk = (
+    #         np.concatenate([self.co.k for i in range(self.co.Nl)]).reshape(-1, 1, 1)
+    #         if kdata is None
+    #         else np.concatenate([[kdata for i in range(self.co.Nl)]]).reshape(-1, 1, 1)
+    #     )
+    #     # if Ps is None:
+    #     #     P11l, Ploopl, Pctl = self.P11l, self.Ploopl, self.Pctl
+    #     # else:
+    #     #     P11l, Ploopl, Pctl = Ps
+        
+    #     if Ps is None:
+    #         P11l, Ploopl, Pctl, Pstl = self.P11l, self.Ploopl, self.Pctl, self.Pstl
+    #     else:
+    #         P11l, Ploopl, Pctl, Pstl = Ps
+            
+    #     # print(np.shape(P11l), np.shape(Ploopl), np.shape(Pctl))
+        
+    #     num = len(self.f)
+        
+    #     # Plin = np.flip(np.einsum("n,lnk->lnk", np.array([1.0, 2.0 * self.f, self.f ** 2]), P11l), axis=1)
+    #     # Plin = np.concatenate(np.einsum("lnk->lkn", Plin), axis=0)
+    #     # Plin = np.hstack((allk, Plin))
+        
+    #     Plin = np.flip(np.einsum("na, alnk->alnk", np.array([np.ones(num), 2.0 * self.f, self.f ** 2]), P11l), axis=2)
+    #     Plin = np.concatenate(np.einsum("alnk-> lkna", Plin), axis = 0)
+    #     Plin = np.hstack((np.tile(allk, [1, 1, num]), Plin))
+        
+        
+    #     Ploop2 = np.einsum("na,alnk->alnk", np.array([2.0*np.ones(num), 2.0*np.ones(num), 2.0*np.ones(num), 2.0 * self.f, 2.0 * self.f, 2.0 * self.f]), Pctl)
+    #     # Ploop2 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, 1.0, 1.0 * self.f, 1.0 * self.f, 1.0 * self.f]), Pctl)
+
+    #     Ploop2 = np.concatenate(np.einsum("alnk->lkna", Ploop2), axis=0)
+        
+    #     if self.co.Nloop == 12:
+    #         Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploopl), axis=0)
+    #     elif self.co.Nloop == 22:
+    #         # Ploop1 = np.empty(shape=(self.co.Nl, 12, np.shape(Ploopl)[-1]))
+    #         Ploop1 = np.zeros((num, self.co.Nl, 12, np.shape(Ploopl)[-1]))
+    #         # Ploop1[:, 0] = (
+    #         #     self.f ** 2 * self.Ploopl[:, 0] + self.f ** 3 * self.Ploopl[:, 1] + self.f ** 4 * self.Ploopl[:, 2]
+    #         # )  # *1
+    #         # Ploop1[:, 1] = (
+    #         #     self.f * self.Ploopl[:, 3] + self.f ** 2 * self.Ploopl[:, 4] + self.f ** 3 * self.Ploopl[:, 5]
+    #         # )  # *b1
+    #         # Ploop1[:, 2] = self.f * self.Ploopl[:, 6] + self.f ** 2 * self.Ploopl[:, 7]  # *b2
+    #         # Ploop1[:, 3] = self.f * self.Ploopl[:, 8]  # *b3
+    #         # Ploop1[:, 4] = self.f * self.Ploopl[:, 9] + self.f ** 2 * self.Ploopl[:, 10]  # *b4
+    #         # Ploop1[:, 5] = self.Ploopl[:, 11] + self.f * self.Ploopl[:, 12] + self.f ** 2 * self.Ploopl[:, 13]  # *b1*b1
+    #         # Ploop1[:, 6] = self.Ploopl[:, 14] + self.f * self.Ploopl[:, 15]  # *b1*b2
+    #         # Ploop1[:, 7] = self.Ploopl[:, 16]  # *b1*b3
+    #         # Ploop1[:, 8] = self.Ploopl[:, 17] + self.f * self.Ploopl[:, 18]  # *b1*b4
+    #         # Ploop1[:, 9] = self.Ploopl[:, 19]  # *b2*b2
+    #         # Ploop1[:, 10] = self.Ploopl[:, 20]  # *b2*b4
+    #         # Ploop1[:, 11] = self.Ploopl[:, 21]  # *b4*b4
+            
+    #         self.f = self.f.reshape((num, 1, 1))
+            
+    #         Ploop1[:, :, 0] = (
+    #             self.f ** 2 * Ploopl[:, :, 0] + self.f ** 3 * Ploopl[:, :, 1] + self.f ** 4 * Ploopl[:, :, 2]
+    #         )  # *1
+    #         Ploop1[:, :, 1] = (
+    #             self.f * Ploopl[:, :, 3] + self.f ** 2 * Ploopl[:, :, 4] + self.f ** 3 * Ploopl[:, :, 5]
+    #         )  # *b1
+    #         Ploop1[:, :, 2] = self.f * Ploopl[:, :, 6] + self.f ** 2 * Ploopl[:, :, 7]  # *b2
+    #         Ploop1[:, :, 3] = self.f * Ploopl[:, :, 8]  # *b3
+    #         Ploop1[:, :, 4] = self.f * Ploopl[:, :, 9] + self.f ** 2 * Ploopl[:, :, 10]  # *b4
+    #         Ploop1[:, :, 5] = Ploopl[:, :, 11] + self.f * Ploopl[:, :, 12] + self.f ** 2 * Ploopl[:, :, 13]  # *b1*b1
+    #         Ploop1[:, :, 6] = Ploopl[:, :, 14] + self.f * Ploopl[:, :, 15]  # *b1*b2
+    #         Ploop1[:, :, 7] = Ploopl[:, :, 16]  # *b1*b3
+    #         Ploop1[:, :, 8] = Ploopl[:, :, 17] + self.f * Ploopl[:, :, 18]  # *b1*b4
+    #         Ploop1[:, :, 9] = Ploopl[:, :, 19]  # *b2*b2
+    #         Ploop1[:, :, 10] = Ploopl[:, :, 20]  # *b2*b4
+    #         Ploop1[:, :, 11] = Ploopl[:, :, 21]  # *b4*b4
+    #         # Ploop1 = np.concatenate(np.einsum("lnk->lkn", Ploop1), axis=0)
+    #         Ploop1 = np.concatenate(np.einsum("alnk->lkna", Ploop1), axis=0)
+            
+    #     Ploop3 = np.einsum("na,alnk->alnk", np.array([np.ones(num), np.ones(num), np.ones(num)]), Pstl)
+    #     # Ploop3 = np.einsum("n,lnk->lnk", np.array([1.0, 1.0, self.f]), Pstl)
+        
+    #     Ploop3 = np.concatenate(np.einsum("alnk->lkna", Ploop3), axis=0)
+    #     Ploop = np.hstack((np.tile(allk, [1, 1, num]), Ploop1, Ploop2, Ploop3))
+        
+    #     Plin = np.swapaxes(np.reshape(Plin, (self.co.Nl, Plin.shape[-3]//self.co.Nl, Plin.shape[-2], num))[:, :, 1:], axis1=1, axis2=2)
+    #     Ploop = np.swapaxes(np.reshape(Ploop, (self.co.Nl, Ploop.shape[-3]//self.co.Nl, Ploop.shape[-2], num))[:, :, 1:], axis1=1, axis2=2)
+
+    #     return Plin[:3], Ploop[:3]
+
+    
     def setIRPs(self, Q=None):
 
         if Q is None:
@@ -1711,6 +1739,7 @@ class Bird(object):
                 self.setfullPs()
 
         else:
+            # np.save('check_resum.npy', [self.P11l, self.fullIRPs11])
             self.P11l += self.fullIRPs11
             self.Pctl += self.fullIRPsct
             self.Ploopl += self.fullIRPsloop
@@ -1769,9 +1798,11 @@ class Bird(object):
             self.IRPsct = np.einsum("n,lnk->lnk", Dp2 * Dp2n, self.IRPsct)
             self.IRPsloop = np.einsum("n,lmnk->lmnk", Dp2 ** 2 * Dp2n, self.IRPsloop)
             
-    def setShapefit(self, factor_m, xdata=None, factor_a = 0.6, factor_kp = 0.03, sigma8_ratio = 1.0, IRPs_all = None, power = 1.0):
+    def setShapefit(self, factor_m, xdata=None, factor_a = 0.6, factor_kp = 0.03, sigma8_ratio = 1.0, IRPs_all = None, power = 1.0, resum = None):
         
         kmode = xdata
+        
+        # print(factor_kp)
         
         # factor_kp = 0.0337
         # ratio = np.exp(np.einsum("j, k->jk", factor_m, 1.0/factor_a*np.tanh(factor_a*np.log(kmode/factor_kp))))*sigma8_ratio
@@ -1779,12 +1810,16 @@ class Bird(object):
         # ratio = np.exp(factor_m/factor_a*(factor_a*np.log(kmode/factor_kp))/np.sqrt((factor_a*np.log(kmode/factor_kp))**2+1.0))*sigma8_ratio
         # ratio = np.exp(factor_m/factor_a*np.arctan(factor_a*np.log(kmode/factor_kp)))*sigma8_ratio
         # ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*(1.0-0.5*factor_m)*np.log(kmode/(factor_kp+0.017*factor_m))))*sigma8_ratio
-        
+        # ratio = np.exp(factor_m/(factor_a)*np.tanh(factor_a*np.log(kmode/factor_kp)))*np.heaviside(factor_kp-kmode, 0.5) + np.exp(factor_m/(factor_a)*np.arctan(factor_a*np.log(kmode/factor_kp)))*np.heaviside(kmode - factor_kp, 0.5)
+
         
         ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(kmode/factor_kp)))*sigma8_ratio
+        
+        # ratio_dash = (factor_m*np.exp((factor_m*np.tanh(factor_a*np.log(kmode/factor_kp)))/factor_a)*np.cosh(factor_a*np.log(kmode/factor_kp))**(-2))/kmode
 
         # ratio = np.exp(np.einsum('l, k -> lk', factor_m, 1.0/factor_a*np.tanh(factor_a*np.log(kmode/factor_kp))))
-
+        # lambda_IR = 1.0 
+        # damping = np.exp(-kmode**2/lambda_IR**2)
         
         # P11l = np.einsum("jk, mnk->jmnk", ratio, self.P11l)
         # Pctl = np.einsum("jk, mnk->jmnk", ratio, self.Pctl)
@@ -1793,6 +1828,7 @@ class Bird(object):
         P11l = self.P11l*ratio
         Pctl = self.Pctl*ratio
         Ploopl = self.Ploopl*ratio ** 2
+        # Ploopl = self.Ploopl*ratio * (ratio - (np.exp(factor_m/factor_a)-np.exp(-factor_m/factor_a)))
         
         # P11l = np.einsum('abc, dc -> dabc', self.P11l, ratio)
         # Pctl = np.einsum('abc, dc -> dabc', self.Pctl, ratio)
@@ -1804,44 +1840,33 @@ class Bird(object):
         # print(np.shape(Ploopl), np.shape(ratio))
         
         # print(np.max(self.Ploopl), np.min(self.Ploopl))
+        
+        # ratio_dash = (factor_m*np.exp((factor_m*np.tanh(factor_a*np.log(kmode/factor_kp)))/factor_a)*np.cosh(factor_a*np.log(kmode/factor_kp))**(-2))/kmode
+
 
         ratio_2n = np.concatenate((2 * [self.co.Na * [ratio ** (n + 1)] for n in range(self.co.NIR)]))
-        
-        # if IRPs_all is None: 
-        #     IRPs11_in = interp1d(self.co.k, self.IRPs11, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        #     IRPsct_in = interp1d(self.co.k, self.IRPsct, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        #     IRPsloop_in = interp1d(self.co.k, self.IRPsloop, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        # else:
-        #     IRPs11_new, IRPsct_new, IRPsloop_new = IRPs_all
-        #     IRPs11_in = interp1d(self.co.k, IRPs11_new, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        #     IRPsct_in = interp1d(self.co.k, IRPsct_new, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        #     IRPsloop_in = interp1d(self.co.k, IRPsloop_new, axis=-1, kind="cubic", bounds_error=False, fill_value="extrapolate")(kmode)
-        
-        # print(np.max(IRPs11_in), np.min(IRPs11_in), np.max(self.IRPs11), np.min(self.IRPs11))
-        # print(np.shape(ratio_2n), self.co.NIR, self.co.Na, np.shape(IRPs11_in), self.co.Nn)
-        # print(np.shape(ratio), np.shape(ratio_2n), np.shape(IRPs11_zero))
-        
-        # IRPs11 = np.einsum("nk,lnk->lnk", ratio * ratio_2n, IRPs11_in)
-        # IRPsct = np.einsum("nk,lnk->lnk", ratio * ratio_2n, IRPsct_in)
-        # IRPsloop = np.einsum("nk,lmnk->lmnk", ratio ** 2 * ratio_2n, IRPsloop_in)
+        # ratio_2n = np.concatenate((2 * [self.co.Na * [(ratio-(np.exp(factor_m/factor_a)-np.exp(-factor_m/factor_a))) ** (n+1)] for n in range(self.co.NIR)]))
+
         
         IRPs11 = np.einsum("nk,lnk->lnk", ratio * ratio_2n, self.IRPs11)
         IRPsct = np.einsum("nk,lnk->lnk", ratio * ratio_2n, self.IRPsct)
-        IRPsloop = np.einsum("nk,lmnk->lmnk", ratio ** 2 * ratio_2n, self.IRPsloop)
+        IRPsloop = np.einsum("nk,lmnk->lmnk", (ratio ** 2) * ratio_2n, self.IRPsloop)
+        # IRPs11 = np.einsum("nk,lnk->lnk", (ratio-(np.exp(factor_m/factor_a)-np.exp(-factor_m/factor_a))) * ratio_2n, self.IRPs11)
+        # IRPsct = np.einsum("nk,lnk->lnk", (ratio-(np.exp(factor_m/factor_a)-np.exp(-factor_m/factor_a))) * ratio_2n, self.IRPsct)
+        # IRPsloop = np.einsum("nk,lmnk->lmnk", ((ratio-(np.exp(factor_m/factor_a)-np.exp(-factor_m/factor_a))) ** 2) * ratio_2n, self.IRPsloop)
+        # IRPsloop = np.einsum("nk,lmnk->lmnk", (ratio *(ratio - 2.0*ratio_dash)) * ratio_2n, self.IRPsloop)
         
-        # IRPs11 = np.einsum("npk,lnk->plnk", ratio * ratio_2n, self.IRPs11)
-        # IRPsct = np.einsum("npk,lnk->plnk", ratio * ratio_2n, self.IRPsct)
-        # IRPsloop = np.einsum("npk,lmnk->plmnk", ratio ** 2 * ratio_2n, self.IRPsloop)
+        # IRPs11 = self.IRPs11_interp(factor_m)*self.IRPs11
+        # IRPsct = self.IRPsct_interp(factor_m)*self.IRPsct
+        # IRPsloop = self.IRPsloop_interp(factor_m)*self.IRPsloop
         
-        # IRPs11 = np.einsum("nk,lnk->lnk", ratio_2n, IRPs11_in)
-        # IRPsct = np.einsum("nk,lnk->lnk", ratio_2n, IRPsct_in)
-        # IRPsloop = np.einsum("nk,lmnk->lmnk", ratio_2n, IRPsloop_in)
-        # IRPs11 = IRPs11_in
-        # IRPsct = IRPsct_in
-        # IRPsloop = IRPsloop_in
-        # IRPs11 = np.einsum("njk,lnk->jlnk", ratio * ratio_2n, IRPs11_in)
-        # IRPsct = np.einsum("njk,lnk->jlnk", ratio * ratio_2n, IRPsct_in)
-        # IRPsloop = np.einsum("njk,lmnk->jlmnk", ratio ** 2 * ratio_2n, IRPsloop_in)
+        # IRPs11_in = np.zeros(shape=(self.co.Nl, self.co.Nn, self.co.Nk))
+        # IRPsct_in = np.zeros(shape=(self.co.Nl, self.co.Nn, self.co.Nk))
+        # IRPsloop_in = np.zeros(shape=(self.co.Nl, self.co.Nloop, self.co.Nn, self.co.Nk))
+        
+        # self.ratio_new = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(self.kin/factor_kp)))*sigma8_ratio
+        # IRPs11, IRPsct, IRPsloop = resum.IRPs(self, IRPs_all = [IRPs11_in, IRPsct_in, IRPsloop_in])
+
         
         return P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop
     

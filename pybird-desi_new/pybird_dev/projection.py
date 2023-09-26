@@ -146,6 +146,7 @@ class Projection(object):
             # self.loadBinning(self.xout)
             # self.loadBinning(self.co.k)
             self.getxbin_mat()
+            # self.vel_binmat()
 
         # wedges
         if Nwedges != 0:
@@ -317,6 +318,10 @@ class Projection(object):
                     1.0 / (qperp ** 2 * qpar) * self.integrAP(kdata, Ploopl, kp, arrayLegendremup, many=True)
                 )
                 
+                # test = (
+                #     1.0 / (qperp ** 2 * qpar) * self.integrAP(bird.kin, bird.Pin, kp, arrayLegendremup, many=True)
+                # )
+                # np.save('test_AP.npy', test)
                 # Pstl_AP = (
                 #     1.0 / (qperp ** 2 * qpar) * self.integrAP(kdata, Pstl, kp, arrayLegendremup, many=True)
                 # )
@@ -672,50 +677,139 @@ class Projection(object):
             
     def getxbin_mat(self):
         
-        ks = self.xout
+        try:
+            dist_input = self.co.dist
+            print('Converting power spectrum to correlation function.')
+            self.corr_convert = True
+        except:
+            dist_input = None
+            self.corr_convert = False
         
-        dk = ks[-1] - ks[-2]
-        # dk = ks[1] - ks[0]
-        ks_input = self.co.k
-        # ks_input = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+        if (self.cf == False and dist_input is None):
         
-        self.kmat = ks_input
-        # print(self.kmat)
+            ks = self.xout
+            
+            dk = ks[-1] - ks[-2]
+            # dk = ks[1] - ks[0]
+            ks_input = self.co.k
+            # ks_input = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+            
+            self.kmat = ks_input
+            # print(self.kmat)
+            
+            # self.p = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+    
+            binmat = np.zeros((len(ks), len(ks_input)))
+            for ii in range(len(ks_input)):
+    
+                # Define basis vector
+                pkvec = np.zeros_like(ks_input)
+                pkvec[ii] = 1
+                # print(pkvec)
+    
+                # Define the spline:
+                pkvec_spline = splrep(ks_input, pkvec)
+    
+                # Now compute binned basis vector:
+                tmp = np.zeros_like(ks)
+                for i, kk in enumerate(ks):
+                    if i == 0 or i == len(ks) - 1:
+                        kl = kk - dk / 2
+                        kr = kk + dk / 2
+                    else:
+                        kl = (kk + ks[i-1])/2.0
+                        kr = (ks[i+1] + kk)/2.0
+                    
+                    kin = np.linspace(kl, kr, 100)
+                    tmp[i] = np.trapz(kin**2 * splev(kin, pkvec_spline, ext=0), x=kin) * 3 / (kr**3 - kl**3)
+                    
+                binmat[:, ii] = tmp
+            
+            
+            # if self.co.Nl == 2:
+            #     self.xbin_mat = block_diag(*[binmat, binmat])
+            # else:
+            #     self.xbin_mat = block_diag(*[binmat, binmat, binmat])
+            self.xbin_mat = binmat
+        else:
+            ss = self.xout
+            
+            ds = ss[-1] - ss[-2]
+            # dk = ks[1] - ks[0]
+            if dist_input is None:
+                ss_input = self.co.s
+            else:
+                ss_input = dist_input
+            # ks_input = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+            
+            self.smat = ss_input
+            # print(self.kmat)
+            
+            # self.p = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+    
+            binmat = np.zeros((len(ss), len(ss_input)))
+            for ii in range(len(ss_input)):
+    
+                # Define basis vector
+                cfvec = np.zeros_like(ss_input)
+                cfvec[ii] = 1
+                # print(pkvec)
+    
+                # Define the spline:
+                cfvec_spline = splrep(ss_input, cfvec)
+    
+                # Now compute binned basis vector:
+                tmp = np.zeros_like(ss)
+                for i, sk in enumerate(ss):
+                    if i == 0 or i == len(ss) - 1:
+                        sl = sk - ds / 2
+                        sr = sk + ds / 2
+                    else:
+                        sl = (sk + ss[i-1])/2.0
+                        sr = (ss[i+1] + sk)/2.0
+                    
+                    s_in = np.linspace(sl, sr, 100)
+                    tmp[i] = np.trapz(s_in**2 * splev(s_in, cfvec_spline, ext=2), x=s_in) * 3 / (sr**3 - sl**3)
+                    
+                binmat[:, ii] = tmp
+            
+            
+            # if self.co.Nl == 2:
+            #     self.xbin_mat = block_diag(*[binmat, binmat])
+            # else:
+            #     self.xbin_mat = block_diag(*[binmat, binmat, binmat])
+            self.xbin_mat = binmat
+            
+    # def vel_binmat(self):
+    #     self.corr_convert = False
         
-        # self.p = np.concatenate([np.geomspace(1e-5, 0.015, 100, endpoint=False), np.arange(0.015, self.co.kmax, 1e-3)])
+    #     self.k_thy = np.linspace(self.co.kmin, self.co.kmax, 1000)
+    #     dk_thy = self.k_thy[-1] - self.k_thy[-2]
 
-        binmat = np.zeros((len(ks), len(ks_input)))
-        for ii in range(len(ks_input)):
-
-            # Define basis vector
-            pkvec = np.zeros_like(ks_input)
-            pkvec[ii] = 1
-            # print(pkvec)
-
-            # Define the spline:
-            pkvec_spline = splrep(ks_input, pkvec)
-
-            # Now compute binned basis vector:
-            tmp = np.zeros_like(ks)
-            for i, kk in enumerate(ks):
-                if i == 0 or i == len(ks) - 1:
-                    kl = kk - dk / 2
-                    kr = kk + dk / 2
-                else:
-                    kl = (kk + ks[i-1])/2.0
-                    kr = (ks[i+1] + kk)/2.0
+    #     ko = self.xout
+        
+    #     self.vel_m = np.zeros((len(ko),len(self.k_thy)))
+        
+    #     # for i,ki in enumerate(ko):
+    #     #     norm = (1./3.)* ( (k_thy[5*i + 4])**3 - (k_thy[5*i])**3 )
+    #     #     for j in range(5):
+    #     #         m[i,5*i + j] = (k_thy[5*i + j]**2)*0.001 / norm
+        
+    #     dk = self.xout[-1] - self.xout[-2]
+    #     for i, ki in enumerate(ko):
+    #         if i == 0 or i == len(ko) - 1:
+    #             kl = ki - dk/2.0
+    #             kr = ki + dk/2.0
+    #         else:
+    #             kl = (ki + ko[i-1])/2.0
+    #             kr = (ki + ko[i+1])/2.0
+            
+    #         norm = (1.0/3.0)*(kl**3 - kr**3)
+    #         for j, kj in enumerate(self.k_thy):
+    #             if (kj >= kl) and (kj < kr):
+    #                 self.vel_m[i, j] = kj**2*dk_thy / norm
                 
-                kin = np.linspace(kl, kr, 100)
-                tmp[i] = np.trapz(kin**2 * splev(kin, pkvec_spline, ext=2), x=kin) * 3 / (kr**3 - kl**3)
-                
-            binmat[:, ii] = tmp
         
-        
-        # if self.co.Nl == 2:
-        #     self.xbin_mat = block_diag(*[binmat, binmat])
-        # else:
-        #     self.xbin_mat = block_diag(*[binmat, binmat, binmat])
-        self.xbin_mat = binmat
 
     def loadBinning(self, setxout):
         """
@@ -773,20 +867,38 @@ class Projection(object):
             
         return np.moveaxis(res, 0, -1) / self.binvol
 
-    def xbinning(self, bird, PS_all = None):
+    def xbinning(self, bird, PS_all = None, CF_all = None):
         """
         Apply binning in k-space for linear-spaced data k-array
         """
-        # if self.cf:
-        #     if bird.with_bias:
-        #         bird.fullCf = self.integrBinning(bird.fullCf)
-        #     else:
-        #         bird.C11l = self.integrBinning(bird.C11l)
-        #         bird.Cctl = self.integrBinning(bird.Cctl)
-        #         bird.Cloopl = self.integrBinning(bird.Cloopl)
-        #         # if bird.with_stoch: bird.Cstl = self.integrBinning(bird.Cstl)
-        #         if bird.with_nnlo_counterterm:
-        #             bird.Cnnlol = self.integrBinning(bird.Cnnlol)
+        if (self.cf or self.corr_convert):
+            if CF_all is None:
+                if bird.with_bias:
+                    bird.fullCf = np.einsum("abc, dc -> abd", bird.fullCf, self.xbin_mat)
+                else:
+                    bird.C11l = np.einsum("abc, dc -> abd", bird.C11l, self.xbin_mat)
+                    bird.Cctl = np.einsum("abc, dc -> abd", bird.Cctl, self.xbin_mat)
+                    bird.Cloopl = np.einsum("abc, dc -> abd", bird.Cloopl, self.xbin_mat)
+                    if bird.with_stoch: bird.Cstl = np.einsum("abc, dc -> abd", bird.Cstl, self.xbin_mat)
+                    if bird.with_nnlo_counterterm:
+                        bird.Cnnlol = self.integrBinning(bird.Cnnlol)
+            else:
+                C11l_in, Cloopl_in, Cctl_in, Cstl_in = CF_all
+                
+                C11l_new = np.einsum("abc, dc -> abd", C11l_in, self.xbin_mat)
+                Cctl_new = np.einsum("abc, dc -> abd", Cctl_in, self.xbin_mat)
+                Cloopl_new = np.einsum("abc, dc -> abd", Cloopl_in, self.xbin_mat)
+                Cstl_new = np.einsum("abc, dc -> abd", Cstl_in, self.xbin_mat)
+                
+                return C11l_new, Cloopl_new, Cctl_new, Cstl_new
+            
+                
+                # bird.C11l = self.integrBinning(bird.C11l)
+                # bird.Cctl = self.integrBinning(bird.Cctl)
+                # bird.Cloopl = self.integrBinning(bird.Cloopl)
+                # # if bird.with_stoch: bird.Cstl = self.integrBinning(bird.Cstl)
+                # if bird.with_nnlo_counterterm:
+                #     bird.Cnnlol = self.integrBinning(bird.Cnnlol)
         # else:
         #     if PS_all is None:
         #         if bird.with_bias:
@@ -808,59 +920,76 @@ class Projection(object):
                 
         #         return P11l_out, Ploopl_out, Pctl_out, Pstl_out
         
-        if PS_all is None:
-            if bird.with_bias:
-                bird.fullPs = np.einsum("abc, dc -> abd", bird.fullPs, self.xbin_mat)
-            else:
-                bird.P11l = np.einsum("abc, dc -> abd", bird.P11l, self.xbin_mat)
-                bird.Pctl = np.einsum("abc, dc -> abd", bird.Pctl, self.xbin_mat)
-                bird.Ploopl = np.einsum("abc, dc -> abd", bird.Ploopl, self.xbin_mat)
-                if bird.with_stoch:
-                    bird.Pstl = np.einsum("abc, dc -> abd", bird.Pstl, self.xbin_mat)
-                if bird.with_nnlo_counterterm:
-                    bird.Pnnlol = np.einsum("abc, dc -> abd", bird.Pnnlol, self.xbin_mat)
         else:
-                P11l_in, Ploopl_in, Pctl_in, Pstl_in = PS_all
-                P11l_out = np.einsum("abc, dc -> abd", P11l_in, self.xbin_mat)
-                Pctl_out = np.einsum("abc, dc -> abd", Pctl_in, self.xbin_mat)
-                Ploopl_out = np.einsum("abc, dc -> abd", Ploopl_in, self.xbin_mat)
-                Pstl_out = np.einsum("abc, dc -> abd", Pstl_in, self.xbin_mat)
+            
+            if PS_all is None:
+                if bird.with_bias:
+                    bird.fullPs = np.einsum("abc, dc -> abd", bird.fullPs, self.xbin_mat)
+                else:
+                    bird.P11l = np.einsum("abc, dc -> abd", bird.P11l, self.xbin_mat)
+                    bird.Pctl = np.einsum("abc, dc -> abd", bird.Pctl, self.xbin_mat)
+                    bird.Ploopl = np.einsum("abc, dc -> abd", bird.Ploopl, self.xbin_mat)
+                    if bird.with_stoch:
+                        bird.Pstl = np.einsum("abc, dc -> abd", bird.Pstl, self.xbin_mat)
+                    if bird.with_nnlo_counterterm:
+                        bird.Pnnlol = np.einsum("abc, dc -> abd", bird.Pnnlol, self.xbin_mat)
+            else:
+                    P11l_in, Ploopl_in, Pctl_in, Pstl_in = PS_all
+                    P11l_out = np.einsum("abc, dc -> abd", P11l_in, self.xbin_mat)
+                    Pctl_out = np.einsum("abc, dc -> abd", Pctl_in, self.xbin_mat)
+                    Ploopl_out = np.einsum("abc, dc -> abd", Ploopl_in, self.xbin_mat)
+                    Pstl_out = np.einsum("abc, dc -> abd", Pstl_in, self.xbin_mat)
         
+                    return P11l_out, Ploopl_out, Pctl_out, Pstl_out
         
-        # if PS_all is None:
-        #     if bird.with_bias:
-        #         bird.fullPs = np.einsum("abc, dc -> abd", bird.fullPs, self.xbin_mat)
-        #     else:
-        #         bird.P11l = np.einsum("abc, dc -> abd", bird.P11l, self.xbin_mat)
-        #         bird.Pctl = np.einsum("abc, dc -> abd", bird.Pctl, self.xbin_mat)
-        #         bird.Ploopl = np.einsum("abc, dc -> abd", bird.Ploopl, self.xbin_mat)
-        #         if bird.with_stoch:
-        #             bird.Pstl = np.einsum("abc, dc -> abd", bird.Pstl, self.xbin_mat)
-        #         if bird.with_nnlo_counterterm:
-        #             bird.Pnnlol = np.einsum("abc, dc -> abd", bird.Pnnlol, self.xbin_mat)
-        # else:
-        #         P11l_in, Ploopl_in, Pctl_in, Pstl_in = PS_all
-        #         P11l_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, P11l_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.kmat) , self.xbin_mat)
-        #         Pctl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Pctl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.kmat) , self.xbin_mat)
-        #         Ploopl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Ploopl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.kmat) , self.xbin_mat)
-        #         Pstl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Pstl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.kmat) , self.xbin_mat)
-                
-                return P11l_out, Ploopl_out, Pctl_out, Pstl_out
+            # if PS_all is None:
+            #     if bird.with_bias:
+            #         bird.fullPs = np.einsum("abc, dc -> abd", bird.fullPs, self.xbin_mat)
+            #     else:
+            #         bird.P11l = np.einsum("abc, dc -> abd", bird.P11l, self.xbin_mat)
+            #         bird.Pctl = np.einsum("abc, dc -> abd", bird.Pctl, self.xbin_mat)
+            #         bird.Ploopl = np.einsum("abc, dc -> abd", bird.Ploopl, self.xbin_mat)
+            #         if bird.with_stoch:
+            #             bird.Pstl = np.einsum("abc, dc -> abd", bird.Pstl, self.xbin_mat)
+            #         if bird.with_nnlo_counterterm:
+            #             bird.Pnnlol = np.einsum("abc, dc -> abd", bird.Pnnlol, self.xbin_mat)
+            # else:
+            #         P11l_in, Ploopl_in, Pctl_in, Pstl_in = PS_all
+            #         P11l_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, P11l_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.k_thy) , self.vel_m)
+            #         Pctl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Pctl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.k_thy) , self.vel_m)
+            #         Ploopl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Ploopl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.k_thy) , self.vel_m)
+            #         Pstl_out = np.einsum("abc, dc -> abd", interp1d(self.co.k, Pstl_in, axis = -1, kind = 'cubic', bounds_error=False, fill_value="extrapolate")(self.k_thy) , self.vel_m)
+            #         return P11l_out, Ploopl_out, Pctl_out, Pstl_out
+                    
 
-    def xdata(self, bird, PS=None):
+    def xdata(self, bird, PS=None, CF = None):
         """
         Interpolate the bird power spectrum on the data k-array
         """
         if self.cf:
-            if bird.with_bias:
-                bird.fullCf = interp1d(self.co.s, bird.fullCf, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+            if self.corr_convert:
+                dist = self.co.dist
             else:
-                bird.C11l = interp1d(self.co.s, bird.C11l, axis=-1, kind="cubic", bounds_error=False)(self.xout)
-                bird.Cctl = interp1d(self.co.s, bird.Cctl, axis=-1, kind="cubic", bounds_error=False)(self.xout)
-                bird.Cloopl = interp1d(self.co.s, bird.Cloopl, axis=-1, kind="cubic", bounds_error=False)(self.xout)
-                # if bird.with_stoch: bird.Cstl = interp1d(self.co.s, bird.Cstl, axis=-1, kind='cubic', bounds_error=False)(self.xout)
-                if bird.with_nnlo_counterterm:
-                    bird.Cnnlol = interp1d(self.co.s, bird.Cnnlol, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                dist = self.co.s
+            
+            if CF is None:
+                if bird.with_bias:
+                    bird.fullCf = interp1d(dist, bird.fullCf, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                else:
+                    bird.C11l = interp1d(dist, bird.C11l, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                    bird.Cctl = interp1d(dist, bird.Cctl, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                    bird.Cloopl = interp1d(dist, bird.Cloopl, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                    if bird.with_stoch: bird.Cstl = interp1d(dist, bird.Cstl, axis=-1, kind='cubic', bounds_error=False)(self.xout)
+                    if bird.with_nnlo_counterterm:
+                        bird.Cnnlol = interp1d(dist, bird.Cnnlol, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+            else:
+                C11l_in, Cloopl_in, Cctl_in, Cstl_in = CF
+                C11l_new = interp1d(dist, C11l_in, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                Cctl_new = interp1d(dist, Cctl_in, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                Cloopl_new = interp1d(dist, Cloopl_in, axis=-1, kind="cubic", bounds_error=False)(self.xout)
+                Cstl_new = interp1d(dist, Cstl_in, axis=-1, kind='cubic', bounds_error=False)(self.xout)
+                
+                return C11l_new, Cloopl_new, Cctl_new, Cstl_new
         # else:
         #     if bird.with_bias:
         #         bird.fullPs = interp1d(self.co.k, bird.fullPs, axis=-1, kind="cubic", bounds_error=False)(self.xout)

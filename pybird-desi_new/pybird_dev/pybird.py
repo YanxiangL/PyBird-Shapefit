@@ -1,8 +1,11 @@
 import os
 import numpy as np
 from copy import deepcopy
-from scipy.interpolate import interp1d, RegularGridInterpolator, LinearNDInterpolator
+from scipy.interpolate import splrep, splev, interp1d, RegularGridInterpolator, LinearNDInterpolator, InterpolatedUnivariateSpline
 import time
+from scipy.special import loggamma
+from scipy.misc import derivative
+from abc import ABC
 
 # from . common import Common, co
 # from . bird import Bird
@@ -334,11 +337,13 @@ class Correlator(object):
 
         # Checking for config conflict
         self.__is_config_conflict()
-
+        
+        # print(self.config['with_cf'])
+        
         # Loading PyBird engines
         self.__load_engines(load_engines=load_engines)
 
-    def compute(self, cosmo_dict, module=None, Shapefit = False, Templatefit = False):
+    def compute(self, cosmo_dict, module=None, Templatefit = False, corr_convert = False):
 
         cosmo_dict_local = cosmo_dict.copy()
         
@@ -349,6 +354,13 @@ class Correlator(object):
 
         self.__read_cosmo(cosmo_dict_local)
         self.__is_cosmo_conflict()
+        
+        if (corr_convert == True):
+            self.kmode = np.logspace(np.log10(self.co.kmin), np.log10(1.0), 5000)
+            # self.dist = np.logspace(0.0, 3.0, 5000)
+            self.pk2xi_0 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=0)
+            self.pk2xi_2 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=2)
+            self.pk2xi_4 = PowerToCorrelationSphericalBessel(qs=self.kmode, ell=4)
         
         # if Shapefit == True:
         #     self.setShapefit_full(self.cosmo['P11'], kmode = self.cosmo['k11'], init = True)
@@ -401,11 +413,27 @@ class Correlator(object):
                 else:
                     if Templatefit == False:
                         self.resum.Ps(self.bird)
+                        # np.save('IRPs11_8.npy', self.bird.IRPs11)
+                        # np.save('IRPsct_8.npy', self.bird.IRPsct)
+                        # np.save('IRPsloop_8.npy', self.bird.IRPsloop)
                     else:
                         # P11l, Pctl, Ploopl, IRPs11, IRPsct, IRPsloop = self.bird.setShapefit(0.0, xdata=self.co.k)
                         # # print(np.min(IRPs11), np.max(IRPs11), np.min(IRPsct), np.max(IRPsct), np.min(IRPsloop), np.max(IRPsloop))
                         # self.IRPs11_new, self.IRPsct_new, self.IRPsloop_new = self.resum.IRPs(self.bird, IRPs_all=[IRPs11, IRPsct, IRPsloop])
                         self.resum.Ps(self.bird, setPs=False, init=True, makeQ = False)
+                        
+                        # ratioes = np.linspace(-0.15, 0.15, 101)
+                        # self.bird.IRPs11_interp = interp1d(ratioes, np.load('IRPs11_interp.npy'), axis = 0, bounds_error=True, kind = 'cubic')
+                        # self.bird.IRPsct_interp = interp1d(ratioes, np.load('IRPsct_interp.npy'), axis = 0, bounds_error=True, kind = 'cubic')
+                        # self.bird.IRPsloop_interp = interp1d(ratioes, np.load('IRPsloop_interp.npy'), axis = 0, bounds_error=True, kind = 'cubic')
+                        # print(np.max(self.bird.IRPs11/self.bird.IRPs11_interp(0.0)))
+                        # print(np.max(self.bird.IRPsct/self.bird.IRPsct_interp(0.0)))
+                        # print(np.max(self.bird.IRPsloop/self.bird.IRPsloop_interp(0.0)))
+                        # np.save('IRPs11_fid.npy', self.bird.IRPs11)
+                        # np.save('IRPsct_fid.npy', self.bird.IRPsct)
+                        # np.save('IRPsloop_fid.npy', self.bird.IRPsloop)
+                        # raise ValueError('Test completed.')
+                        
                         # self.resum.IRPs(self.bird)
                         # P11l, Pctl, Ploopl, self.IRPs11_new, self.IRPsct_new, self.IRPsloop_new = self.bird.setShapefit(0.0, xdata=self.co.k)
                         # print("New Shapefit")
@@ -418,19 +446,64 @@ class Correlator(object):
                 self.projection.redshift(
                     self.bird, self.cosmo["rz"], self.cosmo["Dz"], self.cosmo["fz"], pk=self.config["output"]
                 )
+            # print(np.shape(self.bird.P11l), np.shape(self.bird.Ploopl), np.shape(self.bird.Pctl), np.shape(self.bird.Pstl))
             if (self.config["with_AP"] == True and Templatefit == False):
                 self.projection.AP(self.bird)
+                # print(np.shape(self.bird.P11l), np.shape(self.bird.Ploopl), np.shape(self.bird.Pctl), np.shape(self.bird.Pstl))
             if (self.config["with_window"] == True and Templatefit == False):
                 self.projection.Window(self.bird)
             if self.config["with_fibercol"]:
                 self.projection.fibcolWindow(self.bird)
             if self.config["wedge"] != 0:
                 self.projection.Wedges(self.bird)
+            if (corr_convert == True and Templatefit == False):
+                # # np.save('P11l.npy', self.bird.P11l)
+                # # np.save('Ploopl.npy', self.bird.Ploopl)
+                # # np.save('Pctl.npy', self.bird.Pctl)
+                # # np.save('Pstl.npy', self.bird.Pstl)
+                # # np.save('k.npy', self.co.k)
+                
+                # P11l_interp = interp1d(self.co.k, self.bird.P11l, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                # Ploopl_interp = interp1d(self.co.k, self.bird.Ploopl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                # Pctl_interp = interp1d(self.co.k, self.bird.Pctl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                # Pstl_interp = interp1d(self.co.k, self.bird.Pstl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                
+                # # np.save('P11l.npy', P11l_interp)
+                # # np.save('Ploopl.npy', Ploopl_interp)
+                # # np.save('Pctl.npy', Pctl_interp)
+                # # np.save('Pstl.npy', Pstl_interp)
+                # # np.save('k.npy', self.kmode)
+                
+                # damping = 3.5
+                
+                # P11l_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, P11l_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                # P11l_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, P11l_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                # P11l_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, P11l_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                # self.bird.C11l = np.concatenate((P11l_mono_new, P11l_quad_new, P11l_hexa_new), axis = 0)
+                
+                # Ploopl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Ploopl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                # Ploopl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Ploopl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                # Ploopl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Ploopl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                # self.bird.Cloopl = np.concatenate((Ploopl_mono_new, Ploopl_quad_new, Ploopl_hexa_new), axis = 0)
+                
+                # Pctl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pctl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                # Pctl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pctl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                # Pctl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pctl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                # self.bird.Cctl = np.concatenate((Pctl_mono_new, Pctl_quad_new, Pctl_hexa_new), axis = 0)
+                
+                # Pstl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pstl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                # Pstl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pstl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                # Pstl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pstl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                # self.bird.Cstl = np.concatenate((Pstl_mono_new, Pstl_quad_new, Pstl_hexa_new), axis = 0)
+                self.pk2xi_fun(bird=[self.bird.P11l, self.bird.Ploopl, self.bird.Pctl, self.bird.Pstl])
+                
             if (self.config["with_binning"] == True and Templatefit == False):
                 self.projection.xbinning(self.bird)
             else:
-                if Templatefit == False:
+                if Templatefit == False and corr_convert == False:
                     self.projection.xdata(self.bird)
+                    
+            # print(np.shape(self.bird.P11l), np.shape(self.bird.Ploopl), np.shape(self.bird.Pctl), np.shape(self.bird.Pstl))
 
         elif self.config["skycut"] > 1:
             if self.config["with_time"]:  # if all skycuts have same redshift
@@ -578,12 +651,85 @@ class Correlator(object):
                     self.projection[i].fibcolWindow(self.birds[i])
                 if self.config["wedge"] != 0:
                     self.projection[i].Wedges(self.birds[i])
+                if (corr_convert == True and Templatefit == False):
+                    # P11l_interp = interp1d(self.co.k, self.bird[i].P11l, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                    # Ploopl_interp = interp1d(self.co.k, self.bird[i].Ploopl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                    # Pctl_interp = interp1d(self.co.k, self.bird[i].Pctl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                    # Pstl_interp = interp1d(self.co.k, self.bird[i].Pstl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+                    
+                    # damping = 0.25
+                    
+                    # P11l_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, P11l_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                    # P11l_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, P11l_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                    # P11l_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, P11l_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+                    # self.bird.C11l[i] = np.concatenate((P11l_mono_new, P11l_quad_new, P11l_hexa_new), axis = 0)
+                    
+                    # Ploopl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Ploopl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                    # Ploopl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Ploopl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                    # Ploopl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Ploopl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+                    # self.bird.Cloopl[i] = np.concatenate((Ploopl_mono_new, Ploopl_quad_new, Ploopl_hexa_new), axis = 0)
+                    
+                    # Pctl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pctl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                    # Pctl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pctl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                    # Pctl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pctl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+                    # self.bird.Cctl[i] = np.concatenate((Pctl_mono_new, Pctl_quad_new, Pctl_hexa_new), axis = 0)
+                    
+                    # Pstl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pstl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                    # Pstl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pstl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                    # Pstl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pstl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+                    # self.bird.Cstl[i] = np.concatenate((Pstl_mono_new, Pstl_quad_new, Pstl_hexa_new), axis = 0)
+                    self.pk2xi_fun(bird = [self.birds[i].P11l, self.birds[i].Ploopl, self.birds[i].Pctl, self.birds[i].Pstl], index=i)
+                    
+                
                 if (self.config["with_binning"] == True and Templatefit == False):
-                    self.projection[i].xbinning(self.birds[i])
+                    if corr_convert == False:
+                        self.projection[i].xbinning(self.birds[i])
                 else:
                     # self.projection[i].xdata(self.birds[i])
-                    if Templatefit == False:
+                    if Templatefit == False and corr_convert == False:
                         self.projection.xdata(self.bird)
+                        
+    def pk2xi_fun(self, bird, damping = 3.5, index = None, output = False):
+        P11l, Ploopl, Pctl, Pstl = bird
+        P11l_interp = interp1d(self.co.k, P11l, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+        Ploopl_interp = interp1d(self.co.k, Ploopl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+        Pctl_interp = interp1d(self.co.k, Pctl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+        Pstl_interp = interp1d(self.co.k, Pstl, kind = 'cubic', fill_value = 'extrapolate')(self.kmode)
+        
+        P11l_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, P11l_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+        P11l_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, P11l_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+        P11l_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, P11l_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.N11)]])
+        
+        Ploopl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Ploopl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+        Ploopl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Ploopl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])
+        Ploopl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Ploopl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nloop)]])        
+        
+        Pctl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pctl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+        Pctl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pctl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+        Pctl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pctl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nct)]])
+        
+        Pstl_mono_new = np.array([[self.pk2xi_0.__call__(self.kmode, Pstl_interp[0, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+        Pstl_quad_new = np.array([[self.pk2xi_2.__call__(self.kmode, Pstl_interp[1, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+        Pstl_hexa_new = np.array([[self.pk2xi_4.__call__(self.kmode, Pstl_interp[2, i], self.co.dist, damping=damping) for i in range(self.co.Nst)]])
+        
+        if output == False:
+            if index is None:
+                self.bird.C11l = np.concatenate((P11l_mono_new, P11l_quad_new, P11l_hexa_new), axis = 0)
+                self.bird.Cloopl = np.concatenate((Ploopl_mono_new, Ploopl_quad_new, Ploopl_hexa_new), axis = 0)
+                self.bird.Cctl = np.concatenate((Pctl_mono_new, Pctl_quad_new, Pctl_hexa_new), axis = 0)
+                self.bird.Cstl = np.concatenate((Pstl_mono_new, Pstl_quad_new, Pstl_hexa_new), axis = 0)
+            else:
+                self.birds[index].C11l = np.concatenate((P11l_mono_new, P11l_quad_new, P11l_hexa_new), axis = 0)
+                self.birds[index].Cloopl = np.concatenate((Ploopl_mono_new, Ploopl_quad_new, Ploopl_hexa_new), axis = 0)
+                self.birds[index].Cctl = np.concatenate((Pctl_mono_new, Pctl_quad_new, Pctl_hexa_new), axis = 0)
+                self.birds[index].Cstl = np.concatenate((Pstl_mono_new, Pstl_quad_new, Pstl_hexa_new), axis = 0)
+        else:
+            C11l = np.concatenate((P11l_mono_new, P11l_quad_new, P11l_hexa_new), axis = 0)
+            Cloopl = np.concatenate((Ploopl_mono_new, Ploopl_quad_new, Ploopl_hexa_new), axis = 0)
+            Cctl = np.concatenate((Pctl_mono_new, Pctl_quad_new, Pctl_hexa_new), axis = 0)
+            Cstl = np.concatenate((Pstl_mono_new, Pstl_quad_new, Pstl_hexa_new), axis = 0)
+            
+            return C11l, Cloopl, Cctl, Cstl
 
     def get(self, bias=None):
 
@@ -1188,6 +1334,8 @@ class Correlator(object):
         self.config["accboost"] = float(self.config["accboost"])
 
     def __is_config_conflict(self):
+        
+        # print(self.config["output"])
 
         if "Cf" in self.config["output"]:
             self.config["with_window"] = False
@@ -1842,4 +1990,225 @@ class Option(object):
                 )
             except Exception as e:
                 print(e)
+                
+class PowerToCorrelation(ABC):
+    """Generic class for converting power spectra to correlation functions
+    Using a class based method as there might be multiple implementations and
+    some of the implementations have state.
+    """
+
+    def __init__(self, ell=0):
+        self.ell = ell
+
+    def __call__(self, ks, pk, ss):
+        """Generates the correlation function
+        Parameters
+        ----------
+        ks : np.ndarray
+            The k values for the power spectrum data. *Assumed to be in log space*
+        pk : np.ndarray
+            The P(k) values
+        ss : np.nparray
+            The distances to calculate xi(s) at.
+        Returns
+        -------
+        xi : np.ndarray
+            The correlation function at the specified distances
+        """
+        raise NotImplementedError()
+    
+class PowerToCorrelationSphericalBessel(PowerToCorrelation):
+    def __init__(self, qs=None, ell=15, low_ring=True, fourier=True):
+
+        """
+        From Stephen Chen. Class to perform spherical bessel transforms via FFTLog for a given set of qs, ie.
+        the untransformed coordinate, up to a given order L in bessel functions (j_l for l
+        less than or equal to L. The point is to save time by evaluating the Mellin transforms
+        u_m in advance.
+        Does not use fftw as in spherical_bessel_transform_fftw.py, which makes it convenient
+        to evaluate the generalized correlation functions in qfuncfft, as there aren't as many
+        ffts as in LPT modules so time saved by fftw is minimal when accounting for the
+        startup time of pyFFTW.
+        Based on Yin Li's package mcfit (https://github.com/eelregit/mcfit)
+        with the above modifications.
+        Taken from velocileptors.
+        """
+
+        if qs is None:
+            qs = np.logspace(-4, np.log(5.0), 2000)
+
+        # numerical factor of sqrt(pi) in the Mellin transform
+        # if doing integral in fourier space get in addition a factor of 2 pi / (2pi)^3
+        if not fourier:
+            self.sqrtpi = np.sqrt(np.pi)
+        else:
+            self.sqrtpi = np.sqrt(np.pi) / (2 * np.pi**2)
+
+        self.q = qs
+        self.ell = ell
+
+        self.Nx = len(qs)
+        self.Delta = np.log(qs[-1] / qs[0]) / (self.Nx - 1)
+
+        self.N = 2 ** (int(np.ceil(np.log2(self.Nx))) + 1)
+        self.Npad = self.N - self.Nx
+        self.pads = np.zeros((self.N - self.Nx) // 2)
+        self.pad_iis = np.arange(self.Npad - self.Npad // 2, self.N - self.Npad // 2)
+
+        # Set up the FFTLog kernels u_m up to, but not including, L
+        ms = np.arange(0, self.N // 2 + 1)
+        self.ydict = {}
+        self.udict = {}
+        self.qdict = {}
+
+        if low_ring:
+            for ll in range(self.ell + 1):
+                q = max(0, 1.5 - ll)
+                lnxy = self.Delta / np.pi * np.angle(self.UK(ll, q + 1j * np.pi / self.Delta))  # ln(xmin*ymax)
+                ys = np.exp(lnxy - self.Delta) * qs / (qs[0] * qs[-1])
+                us = self.UK(ll, q + 2j * np.pi / self.N / self.Delta * ms) * np.exp(-2j * np.pi * lnxy / self.N / self.Delta * ms)
+
+                self.ydict[ll] = ys
+                self.udict[ll] = us
+                self.qdict[ll] = q
+
+        else:
+            # if not low ring then just set x_min * y_max = 1
+            for ll in range(self.ell + 1):
+                q = max(0, 1.5 - ll)
+                ys = np.exp(-self.Delta) * qs / (qs[0] * qs[-1])
+                us = self.UK(ll, q + 2j * np.pi / self.N / self.Delta * ms)
+
+                self.ydict[ll] = ys
+                self.udict[ll] = us
+                self.qdict[ll] = q
+
+    def __call__(self, ks, fq, ss, damping=0.25, nu=None):
+        """
+        The workhorse of the class. Spherical Hankel Transforms fq on coordinates self.q.
+        """
+        if nu is None:
+            nu = self.ell
+
+        fq = fq * np.exp(-(ks**2) * damping**2)
+
+        q = self.qdict[nu]
+        y = self.ydict[nu]
+        f = np.concatenate((self.pads, self.q ** (3 - q) * fq, self.pads))
+
+        fks = np.fft.rfft(f)
+        gks = self.udict[nu] * fks
+        gs = np.fft.hfft(gks) / self.N
+
+        return np.real((1j) ** nu * splev(ss, splrep(y, y ** (-q) * gs[self.pad_iis])))
+
+    def UK(self, nu, z):
+        """
+        The Mellin transform of the spherical bessel transform.
+        """
+        return self.sqrtpi * np.exp(np.log(2) * (z - 2) + loggamma(0.5 * (nu + z)) - loggamma(0.5 * (3 + nu - z)))
+
+    def update_tilt(self, nu, tilt):
+        """
+        Update the tilt for a particular nu. Assume low ring coordinates.
+        """
+        q = tilt
+        ll = nu
+
+        ms = np.arange(0, self.N // 2 + 1)
+        lnxy = self.Delta / np.pi * np.angle(self.UK(ll, q + 1j * np.pi / self.Delta))  # ln(xmin*ymax)
+        ys = np.exp(lnxy - self.Delta) * self.q / (self.q[0] * self.q[-1])
+        us = self.UK(ll, q + 2j * np.pi / self.N / self.Delta * ms) * np.exp(-2j * np.pi * lnxy / self.N / self.Delta * ms)
+
+        self.ydict[ll] = ys
+        self.udict[ll] = us
+        self.qdict[ll] = q
+
+    def loginterp(
+        x,
+        y,
+        yint=None,
+        side="both",
+        lorder=9,
+        rorder=9,
+        lp=1,
+        rp=-2,
+        ldx=1e-6,
+        rdx=1e-6,
+        interp_min=-12,
+        interp_max=12,
+        Nint=10**5,
+        verbose=False,
+        option="B",
+    ):
+        """
+        Extrapolate function by evaluating a log-index of left & right side.
+        From Chirag Modi's CLEFT code at
+        https://github.com/modichirag/CLEFT/blob/master/qfuncpool.py
+        The warning for divergent power laws on both ends is turned off. To turn back on uncomment lines 26-33.
+        """
+
+        if yint is None:
+            yint = InterpolatedUnivariateSpline(x, y, k=5)
+        if side == "both":
+            side = "lr"
+
+        # Make sure there is no zero crossing between the edge points
+        # If so assume there can't be another crossing nearby
+
+        if np.sign(y[lp]) == np.sign(y[lp - 1]) and np.sign(y[lp]) == np.sign(y[lp + 1]):
+            l = lp
+        else:
+            l = lp + 2
+
+        if np.sign(y[rp]) == np.sign(y[rp - 1]) and np.sign(y[rp]) == np.sign(y[rp + 1]):
+            r = rp
+        else:
+            r = rp - 2
+
+        lneff = derivative(yint, x[l], dx=x[l] * ldx, order=lorder) * x[l] / y[l]
+        rneff = derivative(yint, x[r], dx=x[r] * rdx, order=rorder) * x[r] / y[r]
+
+        # print(lneff, rneff)
+
+        # uncomment if you like warnings.
+        # if verbose:
+        #    if lneff < 0:
+        #        print( 'In function - ', inspect.getouterframes( inspect.currentframe() )[2][3])
+        #        print('WARNING: Runaway index on left side, bad interpolation. Left index = %0.3e at %0.3e'%(lneff, x[l]))
+        #    if rneff > 0:
+        #        print( 'In function - ', inspect.getouterframes( inspect.currentframe() )[2][3])
+        #        print('WARNING: Runaway index on right side, bad interpolation. Reft index = %0.3e at %0.3e'%(rneff, x[r]))
+
+        if option == "A":
+
+            xl = np.logspace(interp_min, np.log10(x[l]), Nint)
+            xr = np.logspace(np.log10(x[r]), interp_max, Nint)
+            yl = y[l] * (xl / x[l]) ** lneff
+            yr = y[r] * (xr / x[r]) ** rneff
+            # print(xr/x[r])
+
+            xint = x[l + 1 : r].copy()
+            yint = y[l + 1 : r].copy()
+            if side.find("l") > -1:
+                xint = np.concatenate((xl, xint))
+                yint = np.concatenate((yl, yint))
+            if side.find("r") > -1:
+                xint = np.concatenate((xint, xr))
+                yint = np.concatenate((yint, yr))
+            yint2 = InterpolatedUnivariateSpline(xint, yint, k=5, ext=3)
+
+        else:
+            # nan_to_numb is to prevent (xx/x[l/r])^lneff to go to nan on the other side
+            # since this value should be zero on the wrong side anyway
+            # yint2 = lambda xx: (xx <= x[l]) * y[l]*(xx/x[l])**lneff \
+            #                 + (xx >= x[r]) * y[r]*(xx/x[r])**rneff \
+            #                 + (xx > x[l]) * (xx < x[r]) * interpolate(x, y, k = 5, ext=3)(xx)
+            yint2 = (
+                lambda xx: (xx <= x[l]) * y[l] * np.nan_to_num((xx / x[l]) ** lneff)
+                + (xx >= x[r]) * y[r] * np.nan_to_num((xx / x[r]) ** rneff)
+                + (xx > x[l]) * (xx < x[r]) * InterpolatedUnivariateSpline(x, y, k=5, ext=3)(xx)
+            )
+
+        return yint2
     

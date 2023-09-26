@@ -5,6 +5,8 @@ from scipy.interpolate import interp1d
 from .fftlog import FFTLog, MPC, CoefWindow
 from .common import co
 from .resumfactor import Qa, Qawithhex, Qawithhex20
+import time
+from scipy.special import spherical_jn
 
 
 class Resum(object):
@@ -64,6 +66,7 @@ class Resum(object):
     """
 
     def __init__(self, LambdaIR=0.2, NFFT=192, co=co):
+        #Current LambdaIR setting is unstable for some high cosmological parameters. 
 
         self.co = co
         self.LambdaIR = LambdaIR
@@ -76,6 +79,7 @@ class Resum(object):
             self.sbao = self.co.s[self.idlow : self.idhigh]
             self.snobao = np.concatenate([self.co.s[: self.idlow], self.co.s[self.idhigh :]])
             self.sr = self.sbao
+            self.LambdaIR = 1.0
         else:
 
             self.sr = self.co.s
@@ -146,10 +150,19 @@ class Resum(object):
             Pin = bird.G1 ** 2 * bird.Pin
         else:
             Pin = bird.Pin
+        
+        # try:
+        #     Coef = self.Xfft.Coef(bird.kin, Pin*bird.ratio_new * exp(-bird.kin ** 2 / LambdaIR ** 2) / bird.kin ** 2, window=window)
+        # except:
+        #     Coef = self.Xfft.Coef(bird.kin, Pin * exp(-bird.kin ** 2 / LambdaIR ** 2) / bird.kin ** 2, window=window)
+        
         Coef = self.Xfft.Coef(bird.kin, Pin * exp(-bird.kin ** 2 / LambdaIR ** 2) / bird.kin ** 2, window=window)
+
+        
         CoefsPow = np.einsum("n,ns->ns", Coef, self.XsPow)
         X02 = np.real(np.einsum("ns,ln->ls", CoefsPow, self.XM))
         X0offset = np.real(np.einsum("n,n->", np.einsum("n,n->n", Coef, soffset ** (-self.Xfft.Pow - 3.0)), self.XM[0]))
+
         X02[0] = X0offset - X02[0]
         # if self.co.nonequaltime:
         #     X = RescaleIR * 2/3. * bird.D1*bird.D2/bird.D**2 * (X02[0] - X02[1]) + 1/3. * (bird.D1-bird.D2)**2/bird.D**2 * X0offset
@@ -157,6 +170,41 @@ class Resum(object):
         # else:
         X = RescaleIR * 2.0 / 3.0 * (X02[0] - X02[1])
         Y = 2.0 * X02[1]
+        
+        # ratioes = [-0.05, -0.025, -0.01, -0.005, 0.0, 0.005, 0.01, 0.025, 0.05]
+        # results_X = []
+        # results_Y = []
+        # for i in range(len(ratioes)):
+        #     factor_m = ratioes[i]
+        #     factor_a = 0.6
+        #     factor_kp = 0.03
+        #     ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(bird.kin/factor_kp)))
+        #     Coef = self.Xfft.Coef(bird.kin, Pin * ratio * exp(-bird.kin ** 2 / LambdaIR ** 2) / bird.kin ** 2, window=window)
+        #     CoefsPow = np.einsum("n,ns->ns", Coef, self.XsPow)
+        #     X02 = np.real(np.einsum("ns,ln->ls", CoefsPow, self.XM))
+        #     X0offset = np.real(np.einsum("n,n->", np.einsum("n,n->n", Coef, soffset ** (-self.Xfft.Pow - 3.0)), self.XM[0]))
+
+        #     X02[0] = X0offset - X02[0]
+        #     # if self.co.nonequaltime:
+        #     #     X = RescaleIR * 2/3. * bird.D1*bird.D2/bird.D**2 * (X02[0] - X02[1]) + 1/3. * (bird.D1-bird.D2)**2/bird.D**2 * X0offset
+        #     #     Y = 2. * bird.D1*bird.D2/bird.D**2 * X02[1]
+        #     # else:
+        #     X = RescaleIR * 2.0 / 3.0 * (X02[0] - X02[1])
+        #     Y = 2.0 * X02[1]
+        #     # pq = np.einsum('m, n->nm', bird.kin, self.sr)
+        #     # integrand_x = np.einsum('m, nm-> nm', 2.0/3.0*Pin*exp(-bird.kin**2/LambdaIR**2)*ratio, (1.0-spherical_jn(0, pq)-spherical_jn(2, pq)))/(2.0*np.pi**2)
+        #     # integrand_y = np.einsum('m, nm-> nm', 2.0*Pin*exp(-bird.kin**2/LambdaIR**2)*ratio, (spherical_jn(2, pq)))/(2.0*np.pi**2)
+        #     # results_X.append(np.trapz(integrand_x, bird.kin))
+        #     # results_Y.append(np.trapz(integrand_y, bird.kin))
+        #     print(i, factor_m, X0offset)
+        # # np.save('X_SF.npy', results_X)
+        # # np.save('Y_SF.npy', results_Y)
+        # # np.save('xm.npy', self.XM)
+        # # np.save('xfft_x', self.Xfft.x)
+        # # np.save('xfft_pow', self.Xfft.Pow)
+        # # np.save('x_trapz.npy', results_X)
+        # # np.save('y_trapz.npy', results_Y)
+        # raise ValueError('Test completed.')
         return X, Y
 
     def setkPow(self):
@@ -173,7 +221,18 @@ class Resum(object):
         """ Compute the spherical Bessel transform in the IR correction of order n given [XY]^n """
         Coef = self.fft.Coef(self.sr, XpYpC, extrap="padding", window=window)
         CoefkPow = np.einsum("n,nk->nk", Coef, self.kPow)
-        return np.real(np.einsum("nk,ln->lk", CoefkPow, self.M[: self.co.Na]))
+        return np.real(np.einsum("nk,ln->lk", CoefkPow, self.M[:self.co.Nl]))
+
+        # output = np.real(np.einsum("nk,ln->lk", CoefkPow, self.M[:self.co.Na]))
+        # knew = np.linspace(self.klow, self.co.kmax, 1001)
+        # kq = np.einsum('m, n-> nm', knew, self.sr)
+        # integrand_0 = np.einsum('n, nm-> nm', self.sr**2*XpYpC, spherical_jn(0, kq))
+        # integrand_2 = np.einsum('n, nm-> nm', self.sr**2*XpYpC, spherical_jn(2, kq))
+        # integrand_4 = np.einsum('n, nm-> nm', self.sr**2*XpYpC, spherical_jn(4, kq))
+        # integrand = np.array([integrand_0, integrand_2, integrand_4])
+        # output_trapz = np.trapz(integrand, self.sr, axis=1)
+        # output_trapz = interp1d(knew, output_trapz, kind='cubic', fill_value='extrapolate')(self.kr)
+        # return output_trapz
 
     def extractBAO(self, cf):
         """Given a correlation function cf,
@@ -287,7 +346,46 @@ class Resum(object):
         if makeQ:
             bird.Q = self.makeQ(bird.f)
         if makeIR:
+            # ratioes = np.linspace(-0.15, 0.15, 101)
+            # IRPs11_all = []
+            # IRPsct_all = []
+            # IRPsloop_all = []
+            # for i in range(len(ratioes)):
+            #     factor_m = ratioes[i]
+            #     factor_a = 0.6
+            #     factor_kp = 0.03
+            #     self.ratio = np.exp(factor_m/factor_a*np.tanh(factor_a*np.log(bird.kin/factor_kp)))
+            #     # kmode = bird.kin
+            #     # self.ratio = np.exp(factor_m/(factor_a)*np.tanh(factor_a*np.log(kmode/factor_kp)))*np.heaviside(factor_kp-kmode, 0.5) + np.exp(factor_m/(factor_a)*np.arctan(factor_a*np.log(kmode/factor_kp)))*np.heaviside(kmode - factor_kp, 0.5)
+                
+            #     self.IRPs(bird, window=window)
+            #     IRPs11_all.append(bird.IRPs11)
+            #     IRPsct_all.append(bird.IRPsct)
+            #     IRPsloop_all.append(bird.IRPsloop)
+                
+            #     bird.IRPs11 = np.zeros(shape=(self.co.Nl, self.co.Nn, self.co.Nk))
+            #     bird.IRPsct = np.zeros(shape=(self.co.Nl, self.co.Nn, self.co.Nk))
+            #     bird.IRPsloop = np.zeros(shape=(self.co.Nl, self.co.Nloop, self.co.Nn, self.co.Nk))
+                
+            #     print(i, factor_m)
+            # out_IRPs11 = []
+            # out_IRPsct = []
+            # out_IRPsloop = []
+            # for i in range(len(ratioes)):
+            #     ratio_s11 = np.nan_to_num(IRPs11_all[i]/IRPs11_all[50], nan=1.0)
+            #     out_IRPs11.append(ratio_s11)
+            #     ratio_sct = np.nan_to_num(IRPsct_all[i]/IRPsct_all[50], nan=1.0)
+            #     out_IRPsct.append(ratio_sct)
+            #     ratio_sloop = np.nan_to_num(IRPsloop_all[i]/IRPsloop_all[50], nan=1.0)
+            #     out_IRPsloop.append(ratio_sloop)
+                
+            # np.save('IRPs11_interp.npy', out_IRPs11)
+            # np.save('IRPsct_interp.npy', out_IRPsct)
+            # np.save('IRPsloop_interp.npy', out_IRPsloop)
+            # # raise ValueError('Test completed.')
+            
             self.IRPs(bird, window=window)
+            
         if init == False:
             bird.setIRPs()
         if setPs:

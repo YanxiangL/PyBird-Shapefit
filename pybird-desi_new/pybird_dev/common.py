@@ -147,6 +147,12 @@ class Common(object):
         self.halohalo = halohalo
         self.nd = nd
         self.km = km
+        if with_cf == True:
+            self.km = 0.7
+            print(self.km)
+        if kmax >= 0.45:
+            self.dist = np.logspace(0.0, np.log10(200.0), 5000)
+        
         self.optiresum = optiresum
         self.with_time = with_time
         self.exact_time = exact_time
@@ -169,8 +175,8 @@ class Common(object):
         if Nl is 0:
             self.Nl = 1
         elif Nl > 0:
-            # self.Nl = Nl
-            self.Nl = 5
+            self.Nl = Nl
+            # self.Nl = 5
 
         self.Nst = 3  # number of stochastic terms
 
