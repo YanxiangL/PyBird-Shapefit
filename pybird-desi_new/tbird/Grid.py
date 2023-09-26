@@ -4,7 +4,6 @@ import camb
 from classy import Class
 from scipy.special import hyp2f1
 import scipy.constants as conts
-from nbodykit import cosmology
 
 
 
@@ -221,12 +220,16 @@ def run_class(pardict, redindex=0):
         else:
             print("Error: Neither ln10^{10}A_s nor A_s given in config file")
             exit()
+            
     if "H0" not in parlinear.keys():
         if "h" in parlinear.keys():
             parlinear["H0"] = 100.0 * float(parlinear["h"])
         else:
             print("Error: Neither H0 nor h given in config file")
             exit()
+    else:
+        parlinear["h"] = parlinear["H0"]/100.0
+            
     M.set(
         {
             "A_s": float(parlinear["A_s"]),
@@ -251,6 +254,19 @@ def run_class(pardict, redindex=0):
     #     }
     # )
     
+    if "w" in parlinear.keys():
+        # parlinear['omega_fld'] = 1.0 - (float(parlinear["omega_b"]) + float(parlinear["omega_cdm"]))/(float(parlinear["h"])) - float(parlinear['Omega_k'])
+        M.set(
+            {"Omega_Lambda": 0.0,
+             "w0_fld": float(parlinear["w"])
+                })
+        if "wa" in parlinear.keys():
+            M.set(
+                {"wa_fld": float(parlinear["wa"])
+                })
+            
+    # print(float(parlinear["A_s"]), float(parlinear["H0"]), float(parlinear["omega_b"]), float(parlinear["omega_cdm"]), float(parlinear["w"]))
+    
     # if int(parlinear["N_ncdm"]) > 0:
     #     M.set({"m_ncdm": parlinear["m_ncdm"]})
     M.set(
@@ -263,12 +279,16 @@ def run_class(pardict, redindex=0):
     M.compute()
 
     kin = np.logspace(np.log10(9.9e-5), np.log10(float(parlinear["P_k_max_h/Mpc"])), 2000)
+    
+    # print(M.Omega_m(), M.Omega_Lambda(), M.Omega0_k(), M.get_current_derived_parameters(['Omega0_fld', 'm_ncdm_tot']), float(parlinear["w"]))
 
     # Don't use pk_cb_array - gives weird discontinuties for k < 1.0e-3 and non-zero curvature.
     if int(parlinear["N_ncdm"]) > 0:
         Plin = np.array([[M.pk_cb_lin(ki * M.h(), zi) * M.h() ** 3 for ki in kin] for zi in parlinear["z_pk"]])
     else:
         Plin = np.array([[M.pk_lin(ki * M.h(), zi) * M.h() ** 3 for ki in kin] for zi in parlinear["z_pk"]])
+        
+    # np.save('Plin_converge.npy', [kin, Plin])
     
     # Plin = np.array([[M.pk_lin(ki * M.h(), zi) * M.h() ** 3 for ki in kin] for zi in parlinear["z_pk"]])
     
