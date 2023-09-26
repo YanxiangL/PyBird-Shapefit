@@ -1,0 +1,3 @@
+DESI_KP4_nowin_z0p80-A_s-h-omega_cdm-omega_b_omegak
+DESI_KP4_nowin_z1p10-A_s-h-omega_cdm-omega_b_omegak
+DESI_KP4_nowin_z1p40-A_s-h-omega_cdm-omega_b_omegak

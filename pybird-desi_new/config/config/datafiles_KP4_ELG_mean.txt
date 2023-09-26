@@ -1,0 +1,2 @@
+../../data/ELG/mock_mean.dat
+#../../data/ELG/Fiducial_ELG_mean.txt

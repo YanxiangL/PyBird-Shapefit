@@ -1,0 +1,12 @@
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/NGC_z1_GridsEFT_curved
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/SGC_z1_GridsEFT_curved
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/NGC_z2_GridsEFT_curved
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/SGC_z2_GridsEFT_curved
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/NGC_z3_GridsEFT_curved
+#/Volumes/Work/UQ/DESI/cBIRD/BOSSdata/Grids/SGC_z3_GridsEFT_curved
+/data/uqchowl1/EFTGrids/NGC_z1_GridsEFT_curved
+/data/uqchowl1/EFTGrids/SGC_z1_GridsEFT_curved
+/data/uqchowl1/EFTGrids/NGC_z2_GridsEFT_curved
+/data/uqchowl1/EFTGrids/SGC_z2_GridsEFT_curved
+/data/uqchowl1/EFTGrids/NGC_z3_GridsEFT_curved
+/data/uqchowl1/EFTGrids/SGC_z3_GridsEFT_curved
