@@ -177,7 +177,7 @@ def read_chain(pardict, Shapefit, z_bin, with_zeus = True, index = None):
     else:
         chainfile = '../../data/DESI_KP4_LRG_ELG_QSO_pk_0.20hex0.20_3order_nohex_marg_noresum_bin_' + str(z_bin) + '.hdf5'
     #This is the name of the chainfile. 
-    chainfile = '../../data/check_prior_LCDM.hdf5'
+    # chainfile = '../../data/check_prior_LCDM.hdf5'
     print(chainfile)
     #The next line returns the chains, best-fit parameters and the likelihood for each iteration. 
     c = ChainConsumer()
@@ -189,8 +189,8 @@ def read_chain(pardict, Shapefit, z_bin, with_zeus = True, index = None):
     else:
         # burntin = np.load(chainfile).T
         # burntin = np.loadtxt('../../data/shapefit_chains_test.txt')
-        burntin = np.loadtxt('../../data/DESI_KP4_LRG_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_0_mean_converted_bin_0_0.dat')
-        # print(burntin)
+        burntin = np.loadtxt('../../data/Mark_LRG_SF_0p18.txt')
+        print('../../data/Mark_LRG_SF_0p18.txt')
         
         # burntin = np.array([burntin[:, 2], burntin[:, 1], burntin[:, 0], burntin[:, 3]]).T
     
@@ -198,8 +198,9 @@ def read_chain(pardict, Shapefit, z_bin, with_zeus = True, index = None):
         if Shapefit == True:
             c.add_chain(burntin[:, :4], parameters = [r"$\alpha_{\perp}$", r"$\alpha_{\parallel}$", "$f\sigma_8$", "$m$"], name = 'Shapefit')
             data = c.analysis.get_summary()
-            mean = np.array([data[r"$\alpha_{\perp}$"][1], data[r"$\alpha_{\parallel}$"][1], data[r'$f\sigma_8$'][1], data[r'$m$'][1]])
+            # mean = np.array([data[r"$\alpha_{\perp}$"][1], data[r"$\alpha_{\parallel}$"][1], data[r'$f\sigma_8$'][1], data[r'$m$'][1]])
             # mean = bestfit[:4]
+            mean = np.mean(burntin, axis=0)[:4]
         else:
             c.add_chain(burntin[:, :3], parameters = [r"$\alpha_{\perp}$", r"$\alpha_{\parallel}$", "$f\sigma_8$"], name = 'Shapefit')
             data = c.analysis.get_summary()
@@ -369,7 +370,7 @@ def do_emcee(func, start):
     oldfile = chainfile + NWM + ".hdf5"
     newfile = chainfile + NWM + ".dat"
     
-    oldfile = '../../data/check_prior_LCDM_converted.hdf5'
+    # oldfile = '../../data/check_prior_wCDM_converted.hdf5'
     
     print(oldfile)
     
@@ -484,6 +485,8 @@ def lnprior(params):
         w = params[4]
     elif with_w0_wa == True:
         wa = params[5]
+    elif with_omegak == True:
+        omegak = params[4]
     # ln10As, h, Omega_m = params[:3]
     # ln10As, h, omega_cdm = params[:3]
     # omega_b = birdmodel.valueref[3] / birdmodel.valueref[2] * omega_cdm
@@ -491,6 +494,8 @@ def lnprior(params):
         valueref = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], pardict['w']]))
     elif with_w0_wa == True:
         valueref = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], pardict['w'], pardict['wa']]))
+    elif with_omegak == True:
+        valueref = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], pardict['Omega_k']]))
     else:
         valueref = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b']]))
     delta = np.float64(pardict['dx'])
@@ -512,6 +517,11 @@ def lnprior(params):
             np.greater([ln10As, h, omega_cdm, omega_b, w, wa], upper_bounds)
         ):
             return -np.inf
+    elif with_omegak == True:
+        if np.any(np.less([ln10As, h, omega_cdm, omega_b, omegak], lower_bounds)) or np.any(
+            np.greater([ln10As, h, omega_cdm, omega_b, omegak], upper_bounds)
+        ):
+            return -np.inf
     else:
         if np.any(np.less([ln10As, h, omega_cdm, omega_b], lower_bounds)) or np.any(
             np.greater([ln10As, h, omega_cdm, omega_b], upper_bounds)
@@ -530,6 +540,7 @@ def lnprior(params):
     # BBN (D/H) inspired prior on omega_b
     # omega_b_prior = -0.5 * (omega_b - birdmodel.valueref[3]) ** 2 / 0.00037 ** 2
     omega_b_prior = -0.5 * (omega_b - float(pardict['omega_b'])) ** 2 / 0.00037 ** 2
+    # omega_b_prior = 0
     
     # if (omega_b < 0.02163) or (omega_b > 0.02311):
     #     return -np.inf
@@ -799,7 +810,7 @@ def lnlike(params):
     # theo_aperp, theo_apara, theo_fAmp, theo_mslope, fsigma8, error, ratio = interpolation_function(params[:4])[0]
     model = []
     for i in range(nz):
-        if with_w0 == True:
+        if with_w0 == True or with_omegak == True:
             theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:5])[0]
         elif with_w0_wa == True:
             theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:6])[0]
@@ -840,15 +851,16 @@ def lnlike(params):
         else:
             raise ValueError('Incorrect method for de-wiggle power spectrum. Enter 1 for EH98, 2 for Hinton2017 and 3 for Wallisch2018.')
             
-        if method_fsigma8 == 1:
-            theo_fAmp = theo_fAmp
-        elif method_fsigma8 == 2:
-            theo_fAmp = fsigma8_ratio
-        elif method_fsigma8 == 3:
-            theo_fAmp = fsigmas8_ratio
-        else:
-            raise ValueError('Incorrect method for de-wiggle power spectrum. Enter 1 for EH98, 2 for Hinton2017 and 3 for Wallisch2018.')
+        # if method_fsigma8 == 1:
+        #     theo_fAmp = theo_fAmp
+        # elif method_fsigma8 == 2:
+        #     theo_fAmp = fsigma8_ratio
+        # elif method_fsigma8 == 3:
+        #     theo_fAmp = fsigmas8_ratio
+        # else:
+        #     raise ValueError('Incorrect method for de-wiggle power spectrum. Enter 1 for EH98, 2 for Hinton2017 and 3 for Wallisch2018.')
         
+        # theo_fAmp = fsigmas8_ratio
         # model = np.array([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid, theo_mslope, b1, bp, bd])
         if Approx_Gaussian == True:
             if nz == 1:
@@ -1072,9 +1084,11 @@ if __name__ == "__main__":
     job_total_num = int(sys.argv[4])
     method = int(sys.argv[5]) #Enter 1 for EH98, 2 for Hinton2017 and 3 for Wallisch2018. 
     # method_fsigma8 = int(sys.argv[7])
-    method_fsigma8 = 1
+    # method_fsigma8 = 3
     Approx_Gaussian = bool(int(sys.argv[6]))
     # flatprior = int(sys.argv[8])
+    
+    # print(method_fsigma8)
     
     try:
         #Do single mock. 
@@ -1158,6 +1172,7 @@ if __name__ == "__main__":
     for j in range(nz):
         with_w0 = False
         with_w0_wa = False
+        with_omegak = False
         grid_all = []
         for i in range(job_total_num):
             if "w" in pardict.keys():
@@ -1167,6 +1182,9 @@ if __name__ == "__main__":
                     filename = "Shapefit_Grid_" + str(i) + "_" + str(job_total_num) + '_w0_wa' + 'bin_' + str(pardict['red_index'][j]) + ".npy"
                     with_w0 = False
                     with_w0_wa = True
+            elif pardict['freepar'][-1] == 'Omega_k':
+                filename = "Shapefit_Grid_" + str(i) + "_" + str(job_total_num) + '_omegak' + 'bin_' + str(pardict['red_index'][j]) + ".npy"
+                with_omegak = True
             else:
                 filename = "Shapefit_Grid_" + str(i) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index'][j]) + ".npy"
             grid = np.load(filename)
@@ -1182,6 +1200,8 @@ if __name__ == "__main__":
         if with_w0 == True:
             interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
         elif with_w0_wa == True:
+            interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        elif with_omegak == True:
             interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
         else:
             interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
@@ -1251,14 +1271,14 @@ if __name__ == "__main__":
             # fitdata, fitcov = read_chain(pardict, Shapefit, i, with_zeus=False)
             
             if Approx_Gaussian == True:
-                try:
+                if nz != 1:
                     fitdata, fitcov = read_chain(pardict, Shapefit, np.int32(pardict['red_index'])[i], with_zeus=False, index = i)
-                except:
+                else:
                     fitdata, fitcov = read_chain(pardict, Shapefit, int(pardict['red_index']), with_zeus=False)
             else:
-                try:
+                if nz != 1:
                     interpolator = read_chain(pardict, Shapefit, np.int32(pardict['red_index'])[i], with_zeus=False, index = i)
-                except:
+                else:
                     interpolator = read_chain(pardict, Shapefit, int(pardict['red_index']), with_zeus=False)
                     
                 print(interpolator([1.0, 1.0, fsigma8_fid, 0.0]))
@@ -1268,7 +1288,7 @@ if __name__ == "__main__":
             fit_cov_all.append(fitcov)
         else:
             interpolator_all.append(interpolator)
-    
+    # np.savetxt('../../data/cov_mark.txt', fit_cov_all[0])
     if Approx_Gaussian == True:
         cov_all = sp.linalg.block_diag(*fit_cov_all)
         cov_inv_all = np.linalg.inv(cov_all)
@@ -1286,6 +1306,8 @@ if __name__ == "__main__":
         start = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], pardict['w']]))
     elif with_w0_wa == True:
         start = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], pardict['w'], pardict['wa']]))
+    elif with_omegak == True:
+        start = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], 1e-4]))
     else:
         start = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b']]))
     # start = np.float64(np.array([pardict['ln10^{10}A_s'], pardict['h'], pardict['omega_cdm'], pardict['omega_b'], 2.0, 1.0, 1.0]))
@@ -1309,6 +1331,7 @@ if __name__ == "__main__":
 
     # Does an MCMC and then post-processes to get some derived params
     do_emcee(lnpost, start)
+    
     
     # nparams = len(pardict["dx"])
     

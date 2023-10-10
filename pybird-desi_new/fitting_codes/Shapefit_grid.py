@@ -475,8 +475,10 @@ def grid_params(pardict, params):
     
     # print(M.scale_independent_growth_factor(z_data), cosmo.scale_independent_growth_factor(z_data))
     
-    theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h_fid,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
+    theo_fAmp_dash = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h_fid,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
     # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_EH98_new*h,z_data)*(h_fid*r_d_fid/(rd))**3.)/Amp_fid
+    
+    theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
 
     
     # theo_fAmp1 = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([M.pk_lin(ratio_i*kmpiv_new*h,z_data) for ratio_i in ratio])*(h*r_d_fid/(rd))**3.)/Amp_fid_1
@@ -568,9 +570,9 @@ def grid_params(pardict, params):
     
     # m = -0.6*np.log(Pk_ratio[682]/Pk_ratio_fid[682]/sigma8_sq)
     
-    print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, f*sigma_s8/fsigma8_fid)
+    print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, theo_fAmp_dash)
     
-    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, f*sigma_s8/fsigma8_fid])
+    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, theo_fAmp_dash])
     
     # print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_mslope_new)
     
