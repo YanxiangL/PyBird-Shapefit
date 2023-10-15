@@ -1,0 +1,3 @@
+../../data/Pk_dk0.005/DESI_cubic_LRG_mock_mean_8.dat
+../../data/ELG/mock_mean_8.dat
+../../data/QSO/mock_mean_8.dat

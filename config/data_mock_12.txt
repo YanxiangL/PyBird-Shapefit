@@ -1,0 +1,1 @@
+../../data/ELG/mock_12.dat

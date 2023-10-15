@@ -1,0 +1,5 @@
+../../data/ELG/mock_mean.dat
+#../../data/ELG/FOLPS_ELG_lcdm_fixed_biasfree_kmax0p25.txt
+#../../data/ELG/Velocileptots_ELG_lcdm_fixed_biasfree_kmax0p25.txt
+#../../data/ELG/mock_mean_12.dat
+#../../data/ELG/mock_mean_8.dat

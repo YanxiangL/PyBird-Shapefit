@@ -1,0 +1,3 @@
+../../data/QSO/mock_mean.dat
+#../../data/QSO/FOLPS_QSO_lcdm_fixed_biasfree_kmax0p25.txt
+#../../data/QSO/Velocileptots_QSO_lcdm_fixed_biasfree_kmax0p25.txt

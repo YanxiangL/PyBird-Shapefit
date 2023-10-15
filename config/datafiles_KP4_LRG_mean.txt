@@ -1,0 +1,8 @@
+../../data/Pk_dk0.005/DESI_cubic_LRG_mock_mean.dat
+#../../data/Pk_dk0.005/DESI_cubic_LRG_mock_best_mean.dat
+#../../data/Pk_dk0.005/PS_theory_mean.txt
+#../../data/Pk_dk0.005/Pklmodel_pybird.txt
+#../../data/Pk_dk0.005/Velocileptots_lcdm_fixed_biasfree_kmax0p25.txt
+#../../data/Pk_dk0.005/FOLPS_lcdm_fixed_biasfree_kmax0p25.txt
+#../../data/Pk_dk0.005/DESI_cubic_LRG_mock_mean_12.dat
+#../../data/Pk_dk0.005/DESI_cubic_LRG_mock_mean_8.dat
