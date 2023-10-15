@@ -1,3 +1,0 @@
-This folder contains all the codes you need to run pybird. To run Shapefit, run the fitting_codes/fit_UNIT_pybird_template.py. 
-For Full-Shape fit, run fitting_codes/fit_KP4_pybird.py. To convert Shapefit parameters to cosmological parameters, first run fitting_codes/Shapefit_grid.py to create 
-a grid mapping the cosmological parameters to the Shapefit parameters. Then run fitting_codes/convert_chain_shapefit.py to find the cosmological parameters. 

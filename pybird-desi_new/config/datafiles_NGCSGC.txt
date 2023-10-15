@@ -1,6 +1,0 @@
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_NGC_z1.dat
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_SGC_z1.dat
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_NGC_z2.dat
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_SGC_z2.dat
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_NGC_z3.dat
-../../../montepython_public/data/BOSS_DR12_FullShape/Avg_ps1D_bianchi_NGC_z3.dat
