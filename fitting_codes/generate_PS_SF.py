@@ -178,12 +178,16 @@ print(np.loadtxt(pardict["gridname"], dtype=str))
 fittingdata = FittingData(pardict)
 
 
-bestfit = np.array([ 0.98735055,  1.00273368,  0.37848122, -0.00906751,  2.12157187,
-        1.49645345])
+# bestfit = np.array([ 0.98735055,  1.00273368,  0.37848122, -0.00906751,  2.12157187,
+#         1.49645345])
 # bestfit = np.array([0.99709665,  1.00871029,  0.41892234, -0.01453929,  1.22791322,
 #         0.41936005])
 # bestfit = np.array([0.9973149 ,  1.00530617,  0.41853926, -0.01643777,  1.22659964,
 #         0.42956858])
+
+bestfit = np.array([0.99878816, 1.00167704, 0.44992066, 0.00858483, 2.02956646, 1.97674411
+
+])
 
 if pardict['constrain'] == 'Single':
     keyword += '_single'
@@ -298,6 +302,8 @@ if plot_flag:
 
 if MinF == True or pardict['prior'] == 'BOSS_MaxF':
     pardict['vary_c4'] = 0
+else:
+    pardict['vary_c4'] = 1
     
 
 
@@ -309,6 +315,7 @@ if len(bestfit) != 14:
     alpha_perp, alpha_par, fsigma8, m = bestfit[:4]
     
     bias = bestfit[4:]
+    print(bias)
     
     # b1, c2, c4 = bias
     
@@ -346,9 +353,10 @@ if len(bestfit) != 14:
     
     if MinF == True:
         b1, b2_SPT = bias
-        b2 = [1.0]
+        b2 = 1.0
         b3 = b1 + 15.0*(-2.0/7.0*(b1-1.0))+6.0*23.0/42.0*(b1-1.0)
         b4 = 0.5*(b2_SPT) + b1 - 1.0
+        print(b3, b4)
     else:
         if int(pardict['vary_c4']) == 1:
             b1, c2, c4 = bias
@@ -389,13 +397,13 @@ if len(bestfit) != 14:
     
     
     P_model_lin, P_model_loop, P_model_interp = birdmodel_all[0].compute_model(bs, Plin, Ploop, fittingdata.data["x_data"][0])
-    Pi = birdmodel_all[0].get_Pi_for_marg(Ploop, bs[0], shot_noise_ratio, fittingdata.data["x_data"][0])
+    Pi = birdmodel_all[0].get_Pi_for_marg(Ploop, bs[0], shot_noise_ratio, fittingdata.data["x_data"][0], MinF=MinF)
     
     # print(birdmodels[0].get_Pi_for_marg(
     #     Ploop, bs.reshape((-1, 1)), shot_noise_ratio, fittingdata.data["x_data"][0]
     # ))
     
-    chi_squared = birdmodel_all[0].compute_chi2_marginalised(P_model_interp, Pi, fittingdata.data, onebin = onebin)
+    chi_squared = birdmodel_all[0].compute_chi2_marginalised(P_model_interp, Pi, fittingdata.data, onebin = onebin, MinF = MinF)
     print(chi_squared)
     
     # result = do_optimization(lambda *args: -find_bestfit_marg(*args), [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])

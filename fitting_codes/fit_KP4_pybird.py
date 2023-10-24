@@ -21,6 +21,10 @@ from fitting_codes.fitting_utils import (
     get_Planck,
 )
 
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+
 
 def do_emcee(func, start):
 
@@ -67,7 +71,7 @@ def do_emcee(func, start):
     with Pool() as pool:
 
         # Initialize the sampler
-        sampler = emcee.EnsembleSampler(nwalkers, nparams, func, backend=backend, vectorize=vectorize, pool=pool)
+        sampler = emcee.EnsembleSampler(nwalkers, nparams, func, backend=backend, vectorize=True)
         # sampler = emcee.EnsembleSampler(nwalkers, nparams, func, backend=backend, vectorize=False)
 
 
@@ -100,8 +104,12 @@ def do_emcee(func, start):
 
             # Check convergence
             # converged = np.all(tau[:cosmo_num] * 50 < sampler.iteration)
+            
             converged = np.all(tau * 50 < sampler.iteration)
             converged &= np.all(np.abs(old_tau - tau) / tau < 0.05)
+            
+            # converged = np.all(tau * 100 < sampler.iteration)
+            # converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
             if converged:
                 print("Reached Auto-Correlation time goal: %d > 50 x %.3f" % (counter, autocorr[index]))
                 break
@@ -146,7 +154,7 @@ def do_zeus(func, start):
     with Pool() as pool:
 
         # Initialize the sampler
-        sampler = zeus.EnsembleSampler(nwalkers, nparams, func, pool=pool, vectorize=vectorize)
+        sampler = zeus.EnsembleSampler(nwalkers, nparams, func, pool=pool, vectorize=True)
 
         old_tau = np.inf
         niter = 0
@@ -173,11 +181,11 @@ def do_zeus(func, start):
             print("Maximum Auto-Correlation time: {0:.3f}".format(np.max(tau)))
 
             # Check convergence
-            # converged = np.all(tau * 100 < sampler.iteration)
-            # converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+            converged = np.all(tau * 100 < sampler.iteration)
+            converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
             
-            converged = np.all(tau * 50 < sampler.iteration)
-            converged &= np.all(np.abs(old_tau - tau) / tau < 0.05)
+            # converged = np.all(tau * 50 < sampler.iteration)
+            # converged &= np.all(np.abs(old_tau - tau) / tau < 0.05)
             
             if converged:
                 print("Reached Auto-Correlation time goal: %d > 50 x %.3f" % (counter, autocorr[index]))
@@ -368,7 +376,7 @@ def lnprior(params, birdmodels):
         # if int(pardict['vary_c4']) == 1:
         #     priors += np.where(np.logical_or(bp < -5.0, bp > 5.0), -1.0e30, 0.0)
         # else:
-        priors += np.where(np.logical_or(c2 < -10.0, c2 > 10.0), -1.0e30, 0.0)
+        priors += np.where(np.logical_or(c2 < -15.0, c2 > 15.0), -1.0e30, 0.0)
         # priors += np.where(np.logical_or(c2 < -4.0, c2 > 4.0), -1.0e30, 0.0)
 
 
@@ -377,7 +385,7 @@ def lnprior(params, birdmodels):
         # Gaussian prior for c4
         # priors += -0.5 * c4 ** 2/2.0**2
         if int(pardict['vary_c4']) == 1:
-            priors += np.where(np.logical_or(c4 < -10.0, c4 > 10.0), -1.0e30, 0.0)
+            priors += np.where(np.logical_or(c4 < -15.0, c4 > 15.0), -1.0e30, 0.0)
             # priors += -0.5 * c4 ** 2/2.0**2
             # priors += 0.0
             # priors += -0.5*(1.0/10.0)**2*c4**2
@@ -825,8 +833,15 @@ def lnlike(params, birdmodels, fittingdata, plt):
                 b2 = np.ones(np.shape(params)[1])
                 # b2 = 2.0 - params[counter+1]
                 # b3 = params[counter] + 15.0*(-2.0/7.0*(params[counter]-1.0))+6.0*23.0/42.0*(params[counter]-1.0)
-                b3 = np.ones(np.shape(params)[1])
-                b4 = 0.5*(params[counter+1]) + params[counter] - 1.0
+                
+                
+                # b3 = np.ones(np.shape(params)[1])
+                # b4 = 0.5*(params[counter+1]) + params[counter] - 1.0
+                b3 = (294.0 - 1015.0*(params[counter]-1.0))/441.0
+                b4 = params[counter+1]
+                # b4 = -7.0/5.0*(params[counter]-1.0)-0.7*params[counter+1]
+                # b4 = b2
+                
                 
                 # counter = -2 * (nz - i)
                 # b2 = (params[counter + 1]) / np.sqrt(2.0)
@@ -1447,6 +1462,8 @@ if __name__ == "__main__":
                 model.eft_priors = np.array([2.0, 2.0, 4.0, 4.0, 0.24/shot_noise_ratio, 2.0/shot_noise_ratio, 2.0/shot_noise_ratio])
             else:
                 model.eft_priors = np.array([2.0, 2.0, 8.0, 0.24/shot_noise_ratio, 2.0/shot_noise_ratio, 2.0/shot_noise_ratio])
+                # model.eft_priors = np.array([10.0, 1e10, 1e10, 1e10, 1e-10, 1e10])
+                # print(model.eft_priors)
 
             # model.eft_priors = np.array([1e-10, 2.0, 4.0, 1e-10, 0.24/shot_noise_ratio, 1e-10, 2.0/shot_noise_ratio])
             
@@ -1568,14 +1585,14 @@ if __name__ == "__main__":
 
     # Does an optimization
     # print(start)
-    result = do_optimization(lambda *args: -lnpost(*args), start)
-    print(result["x"])
+    # result = do_optimization(lambda *args: -lnpost(*args), start)
+    # print(result["x"])
     
     # birdmodels[0].pardict["do_marg"] = 2
     # print(lnlike(np.array([3.0364, 0.6736, 0.12, 0.02237, 1.95848981, 0.68865989]), birdmodels, fittingdata, plt))
 
     # Does an MCMC
-    # do_emcee(lnpost, start)
+    do_emcee(lnpost, start)
     # do_zeus(lnpost, start)
     # do_dynesty(lnlike, lnprior_transform, start, jobid)
     # print(-lnpost(np.array([3.00898406, 0.67587391, 0.12082079, 0.02228337, 2.03935988,
@@ -1841,3 +1858,120 @@ if __name__ == "__main__":
 # ax2.legend(fontsize = 4)
 
 # plt.savefig('test.png', dpi=300)
+
+# fig = plt.figure()
+# param = parameters[0]
+# fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, sharex = True)
+# LRG_mean = []
+# LRG_low = []
+# LRG_high = []
+# ELG_mean = []
+# ELG_low = []
+# ELG_high = []
+# QSO_mean = []
+# QSO_low = []
+# QSO_high = []
+# for j in range(8):
+#     LRG_mean.append(data_LRG[j][param][1])
+#     LRG_low.append(data_LRG[j][param][1] - data_LRG[j][param][0])
+#     LRG_high.append(data_LRG[j][param][2] - data_LRG[j][param][1])
+#     ELG_mean.append(data_ELG[j][param][1])
+#     ELG_low.append(data_ELG[j][param][1] - data_ELG[j][param][0])
+#     ELG_high.append(data_ELG[j][param][2] - data_ELG[j][param][1])
+#     QSO_mean.append(data_QSO[j][param][1])
+#     QSO_low.append(data_QSO[j][param][1] - data_QSO[j][param][0])
+#     QSO_high.append(data_QSO[j][param][2] - data_QSO[j][param][1])
+
+
+# ax1.errorbar(k-0.0015, LRG_mean, yerr = np.array([LRG_low, LRG_high]), fmt='.', label = 'LRG', capsize = 2.0)
+# ax1.errorbar(k, ELG_mean, yerr = np.array([ELG_low, ELG_high]), fmt='.', label = 'ELG', capsize = 2.0)
+# ax1.errorbar(k+0.0015, QSO_mean, yerr = np.array([QSO_low, QSO_high]), fmt='.', label = 'QSO', capsize = 2.0)
+# ax1.hlines(1.0, xmin = 0.135, xmax = 0.285, linestyle = 'dashed')
+# ax1.set_ylabel(param)
+
+# param = parameters[1]
+# LRG_mean = []
+# LRG_low = []
+# LRG_high = []
+# ELG_mean = []
+# ELG_low = []
+# ELG_high = []
+# QSO_mean = []
+# QSO_low = []
+# QSO_high = []
+# for j in range(8):
+#     LRG_mean.append(data_LRG[j][param][1])
+#     LRG_low.append(data_LRG[j][param][1] - data_LRG[j][param][0])
+#     LRG_high.append(data_LRG[j][param][2] - data_LRG[j][param][1])
+#     ELG_mean.append(data_ELG[j][param][1])
+#     ELG_low.append(data_ELG[j][param][1] - data_ELG[j][param][0])
+#     ELG_high.append(data_ELG[j][param][2] - data_ELG[j][param][1])
+#     QSO_mean.append(data_QSO[j][param][1])
+#     QSO_low.append(data_QSO[j][param][1] - data_QSO[j][param][0])
+#     QSO_high.append(data_QSO[j][param][2] - data_QSO[j][param][1])
+
+
+# ax2.errorbar(k-0.0015, LRG_mean, yerr = np.array([LRG_low, LRG_high]), fmt='.', label = 'LRG', capsize = 2.0)
+# ax2.errorbar(k, ELG_mean, yerr = np.array([ELG_low, ELG_high]), fmt='.', label = 'ELG', capsize = 2.0)
+# ax2.errorbar(k+0.0015, QSO_mean, yerr = np.array([QSO_low, QSO_high]), fmt='.', label = 'QSO', capsize = 2.0)
+# ax2.hlines(1.0, xmin = 0.135, xmax = 0.285, linestyle = 'dashed')
+# ax2.set_ylabel(param)
+
+# param = parameters[2]
+# LRG_mean = []
+# LRG_low = []
+# LRG_high = []
+# ELG_mean = []
+# ELG_low = []
+# ELG_high = []
+# QSO_mean = []
+# QSO_low = []
+# QSO_high = []
+# for j in range(8):
+#     LRG_mean.append(data_LRG[j][param][1])
+#     LRG_low.append(data_LRG[j][param][1] - data_LRG[j][param][0])
+#     LRG_high.append(data_LRG[j][param][2] - data_LRG[j][param][1])
+#     ELG_mean.append(data_ELG[j][param][1])
+#     ELG_low.append(data_ELG[j][param][1] - data_ELG[j][param][0])
+#     ELG_high.append(data_ELG[j][param][2] - data_ELG[j][param][1])
+#     QSO_mean.append(data_QSO[j][param][1])
+#     QSO_low.append(data_QSO[j][param][1] - data_QSO[j][param][0])
+#     QSO_high.append(data_QSO[j][param][2] - data_QSO[j][param][1])
+
+
+# ax3.errorbar(k-0.0015, LRG_mean, yerr = np.array([LRG_low, LRG_high]), fmt='.', label = 'LRG', capsize = 2.0)
+# ax3.errorbar(k, ELG_mean, yerr = np.array([ELG_low, ELG_high]), fmt='.', label = 'ELG', capsize = 2.0)
+# ax3.errorbar(k+0.0015, QSO_mean, yerr = np.array([QSO_low, QSO_high]), fmt='.', label = 'QSO', capsize = 2.0)
+# ax3.hlines(1.0, xmin = 0.135, xmax = 0.285, linestyle = 'dashed')
+# ax3.set_ylabel(param)
+
+# param = parameters[3]
+# LRG_mean = []
+# LRG_low = []
+# LRG_high = []
+# ELG_mean = []
+# ELG_low = []
+# ELG_high = []
+# QSO_mean = []
+# QSO_low = []
+# QSO_high = []
+# for j in range(8):
+#     LRG_mean.append(data_LRG[j][param][1])
+#     LRG_low.append(data_LRG[j][param][1] - data_LRG[j][param][0])
+#     LRG_high.append(data_LRG[j][param][2] - data_LRG[j][param][1])
+#     ELG_mean.append(data_ELG[j][param][1])
+#     ELG_low.append(data_ELG[j][param][1] - data_ELG[j][param][0])
+#     ELG_high.append(data_ELG[j][param][2] - data_ELG[j][param][1])
+#     QSO_mean.append(data_QSO[j][param][1])
+#     QSO_low.append(data_QSO[j][param][1] - data_QSO[j][param][0])
+#     QSO_high.append(data_QSO[j][param][2] - data_QSO[j][param][1])
+
+
+# ax4.errorbar(k-0.0015, LRG_mean, yerr = np.array([LRG_low, LRG_high]), fmt='.', label = 'LRG', capsize = 2.0)
+# ax4.errorbar(k, ELG_mean, yerr = np.array([ELG_low, ELG_high]), fmt='.', label = 'ELG', capsize = 2.0)
+# ax4.errorbar(k+0.0015, QSO_mean, yerr = np.array([QSO_low, QSO_high]), fmt='.', label = 'QSO', capsize = 2.0)
+# ax4.hlines(0.0, xmin = 0.135, xmax = 0.285, linestyle = 'dashed')
+# ax4.set_ylabel(param)
+# ax4.set_xlabel(r'$k (h/\mathrm{Mpc})$')
+# ax4.legend(ncol = 3)
+# plt.savefig(fname = 'LRG_ELG_QSO_SF_kmax_comparison_nohex.png', dpi=300, bbox_inches = 'tight')

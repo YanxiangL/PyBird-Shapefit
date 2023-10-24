@@ -455,9 +455,11 @@ def grid_params(pardict, params):
         }
     )
     M.compute()
-    
+        
     DM_at_z = M.angular_distance(z_data) * (1. + z_data)
     H_at_z = M.Hubble(z_data) * conts.c / 1000.0
+    
+    # print(DM_at_z, H_at_z)
     rd = M.rs_drag()*h
     
     # EH98_new  = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/(rd))**2
@@ -475,12 +477,15 @@ def grid_params(pardict, params):
     
     # print(M.scale_independent_growth_factor(z_data), cosmo.scale_independent_growth_factor(z_data))
     
-    theo_fAmp_dash = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h_fid,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
+    # theo_fAmp_dash = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_cb_lin(kmpiv_CLASS_new*h,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid_dash
     # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_EH98_new*h,z_data)*(h_fid*r_d_fid/(rd))**3.)/Amp_fid
     
     theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS_new*h,z_data)*(h*r_d_fid/(rd))**3.)/Amp_fid
+    # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS*h*rd/r_d_fid,z_data)*(h*rd/r_d_fid)**3.)/Amp_fid
+    # theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS*h*(r_d_fid/(h_fid)/(rd/h)),z_data)*(h*(r_d_fid/(h_fid)/(rd/h)))**3.)/Amp_fid
 
-    
+    theo_fAmp_dash = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv_CLASS*h*(r_d_fid/(h_fid)/(rd/h)),z_data)*(h*r_d_fid/(h_fid)/(rd/h))**3.)/Amp_fid
+
     # theo_fAmp1 = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([M.pk_lin(ratio_i*kmpiv_new*h,z_data) for ratio_i in ratio])*(h*r_d_fid/(rd))**3.)/Amp_fid_1
     # theo_fAmp2 = M.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([M.pk_lin(ratio_i*kmpiv_new*h,z_data) for ratio_i in ratio_flip])*(h*r_d_fid/(rd))**3.)/Amp_fid_2
  
@@ -498,6 +503,9 @@ def grid_params(pardict, params):
     theo_aperp = (DM_at_z) / DM_fid / (rd/h) * (r_d_fid/h_fid)
     theo_apara = H_z_fid/ (H_at_z) / (rd/h) * (r_d_fid/h_fid)
     
+    theo_aperp_dash = (DM_at_z) / DM_fid / (rd) * (r_d_fid)
+    theo_apara_dash = H_z_fid/ (H_at_z) / (rd) * (r_d_fid)
+    
     # print((r_d_fid/h_fid)/(rd/h), DM_at_z/DM_fid, H_z_fid/H_at_z)
 
     
@@ -506,7 +514,13 @@ def grid_params(pardict, params):
     sigma_s8 = M.sigma(rd/r_d_fid*8.0/M.h(), z_data)
     
     # EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*h_fid*r_d_fid/(rd*h))
+    
     EHpk = (r_d_fid/rd)**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/(rd))**2
+    # EHpk = (r_d_fid/(h_fid)/(rd/h))**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/h_fid/(rd/h))**2
+    
+    # EHpk_new = (r_d_fid/h_fid/(rd/h))**3*cosmology.power.transfers.NoWiggleEisensteinHu(cosmo, z_data)(kvec*r_d_fid/h_fid/(rd/h))**2
+
+    
     if int(pardict["N_ncdm"]) > 0:
         Plin = (r_d_fid/rd)**3*np.array([M.pk_cb_lin(ki * M.h(), z_data) * M.h() ** 3 for ki in kvec*r_d_fid/rd])
     else:
@@ -517,6 +531,10 @@ def grid_params(pardict, params):
     # np.save('Plin_w_' + str(w) + '.npy', Plin)
     EHpk_prime = smooth_wallisch2018(kvec*r_d_fid/rd, Plin)
     EHpk_dash = smooth_hinton2017(kvec*r_d_fid/rd, Plin)
+    
+    # EHpk_prime = smooth_wallisch2018(kvec*r_d_fid/h_fid/(rd/h), Plin)
+    # EHpk_dash = smooth_hinton2017(kvec*r_d_fid/h_fid/(rd/h), Plin)
+    
     # EHpk = (r_d_fid/rd)**3*cosmology.power.linear.LinearPower(cosmo, z_data, transfer='NoWiggleEisensteinHu')(kvec*r_d_fid/(rd))
 
     
@@ -534,6 +552,9 @@ def grid_params(pardict, params):
     Pkshape_ratio = slope_at_x(np.log(kvec[kstart:kend]),np.log(Pk_ratio[kstart:kend]/Pk_ratio_fid[kstart:kend]))
     # Pkshape_ratio_prime = slope_at_x(kvec,np.log(Pk_ratio/Pk_ratio_fid))
     theo_mslope = np.interp(kmpiv_CLASS, kvec[kstart:kend], Pkshape_ratio)
+    
+    # Pkshape_ratio_new = slope_at_x(np.log(kvec[kstart:kend]),np.log(EHpk_new[kstart:kend]/Pk_ratio_fid[kstart:kend]))
+    # theo_mslope_new = np.interp(kmpiv_CLASS, kvec[kstart:kend], Pkshape_ratio_new)
     
     # Pkshape_ratio_dash = slope_at_x(np.log(kvec), np.log(EHpk_dash/transfer_fid_dash))
     # Pkshape_ratio_dash = slope_at_x(np.log(k_new), np.log(EHpk_dash/transfer_fid_dash))
@@ -570,9 +591,13 @@ def grid_params(pardict, params):
     
     # m = -0.6*np.log(Pk_ratio[682]/Pk_ratio_fid[682]/sigma8_sq)
     
-    print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, theo_fAmp_dash)
+    print(theo_aperp, theo_apara, theo_fAmp*fsigma8_fid, theo_mslope, theo_mslope_new, theo_mslope_prime, theo_aperp_dash, theo_apara_dash)
     
-    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, f*sigma8/fsigma8_fid, theo_fAmp_dash])
+    # print('alpha_perp: ' + str(theo_aperp) + ', alpha_par: ' + str(theo_apara) + ', fAmp: ' + str(theo_fAmp) + ', fsigma_s8: ' + str(f*sigma_s8/fsigma8_fid) + ', m: ' + str(theo_mslope) + ', relative difference: ' + str(np.abs((f*sigma_s8/(fsigma8_fid) - theo_fAmp)/(f*sigma_s8/(f*sigma8_fid)))))
+    
+    # print(f*sigma8/fsigma8_fid/(theo_fAmp), rd/r_d_fid)
+    
+    return np.array([theo_aperp, theo_apara, theo_fAmp, theo_mslope, theo_mslope_new, theo_mslope_prime, theo_aperp_dash, theo_apara_dash])
     
     # print(theo_aperp, theo_apara, theo_fAmp, theo_mslope, f*sigma8, theo_mslope_dash, theo_fAmp_dash, theo_mslope_new)
     
@@ -1022,6 +1047,10 @@ if __name__ == "__main__":
     job_num = int(sys.argv[2])
     #Total number of parallel jobs. 
     job_total_num = int(sys.argv[3])
+    
+    #Whether the template cosmology is the same as the fiducial cosmology. 
+    cosmo_fid = bool(int(sys.argv[4]))
+    
     pardict = ConfigObj(configfile)
 
     # Just converts strings in pardicts to numbers in int/float etc.
@@ -1111,9 +1140,15 @@ if __name__ == "__main__":
     template.compute()
     
     h_fid = template.h()
-    H_z_fid = template.Hubble(z_data)*conts.c/1000.0
     r_d_fid = template.rs_drag()*h_fid
-    DM_fid = template.angular_distance(z_data)*(1.0+z_data)
+    
+    if cosmo_fid == True:
+        DM_fid = template.angular_distance(z_data)*(1.0+z_data)
+        H_z_fid = template.Hubble(z_data)*conts.c/1000.0
+    else:
+        DM_fid = np.float64(pardict['DM_fid'])
+        H_z_fid = np.float64(pardict['Hz_fid'])
+    print(DM_fid, H_z_fid)
     
     #This is in h/Mpc. 
     # kmpiv = 0.03
@@ -1132,6 +1167,9 @@ if __name__ == "__main__":
     # ratio_flip = ratio**-1
     
     Amp_fid = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_lin(kmpiv_CLASS*h_fid,z_data)*h_fid**3)
+    
+    # Amp_fid_dash = template.scale_independent_growth_factor_f(z_data)*np.sqrt(template.pk_cb_lin(kmpiv_CLASS*h_fid,z_data)*h_fid**3)
+
     
     # Amp_fid_1 = template.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([template.pk_lin(ratio_i*kmpiv*h_fid,z_data) for ratio_i in ratio])*h_fid**3)
     # Amp_fid_2 = template.scale_independent_growth_factor_f(z_data)*np.sqrt(np.array([template.pk_lin(ratio_i*kmpiv*h_fid,z_data) for ratio_i in ratio_flip])*h_fid**3)
@@ -1230,7 +1268,7 @@ if __name__ == "__main__":
     
     Pk_ratio_fid = transfer_fid
     # print(Amp_fid, fsigma8_fid)
-    print(fsigma8_fid)
+    # print(fsigma8_fid, Amp_fid)
     # print(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')._sigma8/np.sqrt(cosmology.power.linear.LinearPower(cosmo_fid, np.float64(pardict["z_pk"])[0], transfer='NoWiggleEisensteinHu')._norm))
     
     # np.save('test_AP.npy', [kvec, Plin/EH98_dash_fid])
@@ -1284,13 +1322,22 @@ if __name__ == "__main__":
         
     #     params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
         
-    #     print(params)
+    #     # index = 364 + 729*i
+    #     # index_As, remainder = divmod(index, np.int32((2*order+1)**(nparams - 1)))
+    #     # index_h, remainder = divmod(remainder, np.int32((2*order+1)**(nparams-2)))
+    #     # index_cdm, index_b = divmod(remainder, np.int32((2*order+1)**(nparams-3)))
+        
+    #     # params = np.array([ln_10_10_As_all[index_As], h_all[index_h], omega_cdm_all[index_cdm], omega_b_all[index_b]])
+        
+    #     # print(params)
         
     #     output = grid_params(pardict, params)
     #     data.append(output)
     # np.save('output.npy', data)
     
     # np.save('test.npy', [Pk_ratio_fid, EH98_dash_fid, EH98_prime_fid])
+    
+    # print(grid_params(pardict, np.array([3.0364, 0.6736, 0.1200, 0.02237])))
     
     all_params = []
     
@@ -1328,4 +1375,7 @@ if __name__ == "__main__":
     if with_w0 == True or with_w0_wa == True or with_omegak == True:
         np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + keyword + 'bin_' + str(pardict['red_index']) + ".npy", all_params)
     else:
-        np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index']) + ".npy", all_params)
+        if cosmo_fid == False:
+            np.save("Shapefit_Grid_sigma_" + str(job_num) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index']) + ".npy", all_params)
+        else:
+            np.save("Shapefit_Grid_" + str(job_num) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index']) + ".npy", all_params)

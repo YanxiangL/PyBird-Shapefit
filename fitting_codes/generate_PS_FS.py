@@ -11,6 +11,7 @@ import sys
 import copy
 from configobj import ConfigObj
 from scipy.linalg import lapack, block_diag
+from scipy.interpolate import interp1d
 
 sys.path.append("../")
 from pybird_dev import pybird
@@ -418,8 +419,10 @@ xdata = [max(x, key=len) for x in fittingdata.data["x_data"]]
 
 # bestfit = [3.0364, 0.6736, 0.12, 0.02237, 1.95848981, 0.68865989]
 
-bestfit = [3.04643839, 0.66133999, 0.11471243, 0.0214111 , 1.96738021,
-       0.57562839]
+bestfit = [2.99789911, 0.6773457 , 0.12086999, 0.02236987, 1.27730067,
+       0.92127848
+
+]
 
 # parameters = copy.deepcopy(pardict)
 # for k, var in enumerate(pardict["freepar"]):
@@ -544,21 +547,59 @@ if len(bestfit) != 14:
     # b2 = (c2+c4)/np.sqrt(2.0)
     # b4 = (c2-c4)/np.sqrt(2.0)
     
-    if int(pardict['vary_c4']) == 1:
-        # b1, bp, bd = bias
+    if MinF == True:
+        b1, b4 = bias
+        b2 = 1.0
+        # b2 = 2.0 - params[counter+1]
+        # b3 = params[counter] + 15.0*(-2.0/7.0*(params[counter]-1.0))+6.0*23.0/42.0*(params[counter]-1.0)
         
-        # b4 = bd
-        # b2 = (bp - bd)/0.86
         
-        b1, c2, c4 = bias
+        # b3 = np.ones(np.shape(params)[1])
+        # b4 = 0.5*(params[counter+1]) + params[counter] - 1.0
+        b3 = (294.0 - 1015.0*(b1-1.0))/441.0
+        # b4 = -7.0/5.0*(params[counter]-1.0)-0.7*params[counter+1]
         
-        b2 = (c2+c4)/np.sqrt(2.0)
-        b4 = (c2-c4)/np.sqrt(2.0)
         
+        # counter = -2 * (nz - i)
+        # b2 = (params[counter + 1]) / np.sqrt(2.0)
+        # b4 = (params[counter + 1]) / np.sqrt(2.0)
+        # b3 = margb
     else:
-        b1, c2 = bias
-        b2 = c2/np.sqrt(2.0)
-        b4 = b2
+        if int(pardict['vary_c4']) == 1:
+            # b1, bp, bd = bias
+           
+            # b4 = bd
+            # b2 = (bp - bd)/0.86
+           
+            b1, c2, c4 = bias
+            
+            b3 = 0
+           
+            b2 = (c2+c4)/np.sqrt(2.0)
+            b4 = (c2-c4)/np.sqrt(2.0)
+           
+        else:
+            b1, c2 = bias
+            b2 = c2/np.sqrt(2.0)
+            b4 = b2
+            
+            b3 = 0
+    
+    # if int(pardict['vary_c4']) == 1:
+    #     # b1, bp, bd = bias
+        
+    #     # b4 = bd
+    #     # b2 = (bp - bd)/0.86
+        
+    #     b1, c2, c4 = bias
+        
+    #     b2 = (c2+c4)/np.sqrt(2.0)
+    #     b4 = (c2-c4)/np.sqrt(2.0)
+        
+    # else:
+    #     b1, c2 = bias
+    #     b2 = c2/np.sqrt(2.0)
+    #     b4 = b2
     
     # b2 = (bestfit[5] + bestfit[6]) / np.sqrt(2.0)
     # b4 = (bestfit[5] - bestfit[6]) / np.sqrt(2.0)
@@ -570,7 +611,7 @@ if len(bestfit) != 14:
         [
             b1,
             b2,
-            margb,
+            b3,
             b4,
             margb,
             margb,
@@ -770,17 +811,41 @@ else:
 
 # print(np.shape(Plin))
 
+plin0, plin2, plin4 = Plin
+ploop0, ploop2, ploop4 = Ploop
+
+b1, b2, b3, b4, cct, cr1, cr2, ce1, cemono, cequad = bs
+
+# print(np.shape(ploop0))
+
+P0_ct = (b1*cct*ploop0[:, -9] + b1*cr1*ploop0[:, -8] + b1*cr2*ploop0[:, -7] + cct*ploop0[:, -6] + cr1*ploop0[:, -5] + cr2*ploop0[:, -4])/0.7**2
+P2_ct = (b1*cct*ploop2[:, -9] + b1*cr1*ploop2[:, -8] + b1*cr2*ploop2[:, -7] + cct*ploop2[:, -6] + cr1*ploop2[:, -5] + cr2*ploop2[:, -4])/0.7**2
+
+P0_st = ce1*ploop0[:, -3] + cemono*ploop0[:, -2]/0.7**2 + cequad*ploop0[:, -1]/0.7**2
+P2_st = ce1*ploop2[:, -3] + cemono*ploop2[:, -2]/0.7**2 + cequad*ploop2[:, -1]/0.7**2
+
+# print(birdmodels[0].kin)
+# print(fittingdata.data["x_data"][0][0])
+
+# P_ct = interp1d(birdmodels[0].kin, np.concatenate((P0_ct, P2_ct), axis =1), kind = 'cubic', axis = 0, fill_value = 'extrapolate')(fittingdata.data["x_data"][0][0])
+# P_st = interp1d(birdmodels[0].kin, np.concatenate((P0_st, P2_st), axis =1), kind = 'cubic', axis = 0, fill_value = 'extrapolate')(fittingdata.data["x_data"][0][0])
+
+P_ct = np.concatenate((P0_ct, P2_ct), axis =1).T
+P_st = np.concatenate((P0_st, P2_st), axis =1).T
+
 P_model_lin, P_model_loop, P_model_interp = birdmodels[0].compute_model(
     bs.reshape((-1, 1)), Plin, Ploop, fittingdata.data["x_data"][0]
 )
-
 # print(fittingdata.data["x_data"][0][0])
+np.save('ELG_component.npy', [P_model_lin, P_model_loop - P_ct - P_st, P_ct, P_st])
+# print(fittingdata.data["x_data"][0][0])
+np.save('kmode.npy', birdmodels[0].kin)
 
 # np.save("FS_pk_ELG_0p28.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
 # np.save("FS_pk_fiducial_cosmo_ELG.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
 # np.save("FS_pk_joint_fit_QSO.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
 # np.save("FS_cf_LRG_xmin_40.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
-np.save("FS_cf_LRG_xmin_30_V25.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
+# np.save("FS_cf_LRG_xmin_30_V25.npy", [fittingdata.data["x_data"][0][0], P_model_interp])
 
 
 

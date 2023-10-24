@@ -130,11 +130,11 @@ def do_emcee(func, start, keyword):
             print("Max Auto-Correlation time: {0:.3f}".format(autocorr[index]))
 
             # Check convergence
-            converged = np.all(tau * 100 < sampler.iteration)
-            converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+            # converged = np.all(tau * 100 < sampler.iteration)
+            # converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
             
-            # converged = np.all(tau * 50 < sampler.iteration)
-            # converged &= np.all(np.abs(old_tau - tau) / tau < 0.05)
+            converged = np.all(tau * 50 < sampler.iteration)
+            converged &= np.all(np.abs(old_tau - tau) / tau < 0.05)
             
             # converged = np.all(tau[:cosmo_num] * 100 < sampler.iteration)
             # converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
@@ -459,7 +459,7 @@ def lnprior(params, birdmodel, Shaptfit):
         #     priors += np.where(np.logical_or(bp < -5.0, bp > 5.0), -1.0e30, 0.0)
         # else:
         #     priors += np.where(np.logical_or(c2 < -10.0, c2 > 10.0), -1.0e30, 0.0)
-        priors += np.where(np.logical_or(c2 < -10.0, c2 > 10.0), -1.0e30, 0.0)
+        priors += np.where(np.logical_or(c2 < -15.0, c2 > 15.0), -1.0e30, 0.0)
         
         if bias_num > 2.5:
         #     # if c4 < -10.0 or c4 > 10.0:
@@ -480,7 +480,7 @@ def lnprior(params, birdmodel, Shaptfit):
         #     # if bp < -50.0 or bp > 50.0:
         #     #     return -np.inf
             # priors += np.where(np.logical_or(bd < -20.0, bd > 20.0), -1.0e30, 0.0)
-            priors += np.where(np.logical_or(c4 < -10.0, c4 > 10.0), -1.0e30, 0.0)
+            priors += np.where(np.logical_or(c4 < -15.0, c4 > 15.0), -1.0e30, 0.0)
    
 
                 
@@ -1395,10 +1395,12 @@ def lnlike(params, birdmodel, fittingdata, plt, Shapefit):
         margb = np.zeros(np.shape(params)[1])
         
         if MinF == True:
-            b1, b2_SPT = bias
+            b1, b4 = bias
             b2 = [1.0]
-            b3 = b1 + 15.0*(-2.0/7.0*(b1-1.0))+6.0*23.0/42.0*(b1-1.0)
-            b4 = 0.5*(b2_SPT) + b1 - 1.0
+            # b3 = b1 + 15.0*(-2.0/7.0*(b1-1.0))+6.0*23.0/42.0*(b1-1.0)
+            # b4 = 0.5*(b2_SPT) + b1 - 1.0
+            b3 = (294.0 - 1015.0*(b1-1.0))/441.0
+            # b4 = params[counter+1]
         else:
             if int(pardict['vary_c4']) == 1:
                 b1, c2, c4 = bias
@@ -2131,6 +2133,8 @@ if __name__ == "__main__":
     #      2.11210608,  -0.23025114,   0.6747541 ,  -7.3439635 ,
     #    -10.68175077])
     print(start)
+    
+    # print(lnlike(start, birdmodel_all, fittingdata, plt, Shapefit))
     
     # print(birdmodel_all[0].sigma8)
     

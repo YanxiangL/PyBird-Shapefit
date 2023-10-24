@@ -1450,13 +1450,18 @@ class BirdModel:
                     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
                 else:
                     # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
-                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    Covbi += np.repeat(np.array([np.diag([(1.0/10.0)**2, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    # print('Test completed.')
+
 
             else:
                 if self.Nl == 3:
                     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
                 else:
                     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0])]), len(Covbi), axis=0)
+                    # Covbi += np.repeat(np.array([np.diag([0, 0, 0, (1.0/2.0)**2])]), len(Covbi), axis=0)
+
             
             # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 10e100, 0, 10e100, 0])]), len(Covbi), axis=0)
 
@@ -1499,7 +1504,8 @@ class BirdModel:
                     Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
                 else:
                     # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0, 0])]), len(Covbi), axis=0)
-                    Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    # Covbi += np.repeat(np.array([np.diag([0, 0, 0, 0, 0])]), len(Covbi), axis=0)
+                    Covbi += np.repeat(np.array([np.diag([(1.0/10.0)**2, 0, 0, 0, 0])]), len(Covbi), axis=0)
 
             else:
                 if self.Nl == 3:

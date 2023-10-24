@@ -16,9 +16,11 @@ import scipy as sp
 from scipy import interpolate, linalg
 from findiff import FinDiff
 from chainconsumer import ChainConsumer
+import findiff
+from itertools import combinations
 
-sys.path.append('../')
-from pybird_dev.greenfunction import GreenFunction
+# sys.path.append('../')
+# from pybird_dev.greenfunction import GreenFunction
 
 # sys.path.append("../")
 # from tbird.Grid import run_camb, run_class
@@ -201,10 +203,12 @@ def read_chain(pardict, Shapefit, z_bin, with_zeus = True, index = None):
             # mean = np.array([data[r"$\alpha_{\perp}$"][1], data[r"$\alpha_{\parallel}$"][1], data[r'$f\sigma_8$'][1], data[r'$m$'][1]])
             # mean = bestfit[:4]
             mean = np.mean(burntin, axis=0)[:4]
+            # mean = np.median(burntin, axis=0)[:4]
         else:
             c.add_chain(burntin[:, :3], parameters = [r"$\alpha_{\perp}$", r"$\alpha_{\parallel}$", "$f\sigma_8$"], name = 'Shapefit')
             data = c.analysis.get_summary()
-            mean = np.array([data[r"$\alpha_{\perp}$"][1], data[r"$\alpha_{\parallel}$"][1], data[r'$f\sigma_8$'][1]])
+            # mean = np.array([data[r"$\alpha_{\perp}$"][1], data[r"$\alpha_{\parallel}$"][1], data[r'$f\sigma_8$'][1]])
+            mean = np.mean(burntin, axis=0)[:3]
             # mean = bestfit[:3]
             
         cov = c.analysis.get_covariance()[1]
@@ -540,8 +544,14 @@ def lnprior(params):
 
     # BBN (D/H) inspired prior on omega_b
     # omega_b_prior = -0.5 * (omega_b - birdmodel.valueref[3]) ** 2 / 0.00037 ** 2
-    omega_b_prior = -0.5 * (omega_b - float(pardict['omega_b'])) ** 2 / 0.00037 ** 2
+    # if FullShape == False:
+    #     omega_b_prior = -0.5 * (omega_b - float(pardict['omega_b'])) ** 2 / 0.00037 ** 2
+    # else:
+    #     omega_b_prior = 0.0
     # omega_b_prior = 0
+    # omega_b_prior = -0.5 * (omega_b - float(pardict['omega_b'])) ** 2 / 0.00037 ** 2
+    omega_b_prior = -0.5 * (omega_b - 0.02237) ** 2 / 0.00037 ** 2
+
     
     # if (omega_b < 0.02163) or (omega_b > 0.02311):
     #     return -np.inf
@@ -561,250 +571,6 @@ def lnprior(params):
     return omega_b_prior
     # return 0.0
 
-
-# def lnlike(params):
-
-#     ln10As, h, omega_cdm, omega_b = params[:4]
-#     # ln10As, h, omega_cdm = params[:3]
-#     # omega_b = birdmodel.valueref[3] / birdmodel.valueref[2] * omega_cdm
-
-#     Om, Da, Hz, f, sigma8, sigma8_0, sigma12, r_d = birdmodel.compute_params([ln10As, h, omega_cdm, omega_b])
-
-#     # Factors of little h required as Da and Hz in Grid.py have little h scaled out.
-#     alpha_perp = (Da / h) * (float(pardict["h"]) / Da_fid) * (r_d_fid / (r_d))
-#     alpha_par = (float(pardict["h"]) * Hz_fid) / (h * Hz) * (r_d_fid / (r_d))
-
-#     model = np.array([alpha_perp, alpha_par, f * sigma8])
-#     if hybrid:
-#         model = np.concatenate([model, [omega_cdm + omega_b + birdmodel.omega_nu]])
-
-#     chi_squared = (fitdata - model) @ fitcov @ (fitdata - model)
-
-#     return -0.5 * chi_squared
-
-# def lnlike(params):
-#     ln10As, h, omega_cdm, omega_b = params[:4]
-    
-#     A_s = np.exp(ln10As)/1.0e10
-#     H_0 = 100.0*h
-    
-#     M = Class()
-    
-#     z_data = float(pardict["z_pk"][0])
-    
-#     M.set(
-#         {
-#             "A_s": A_s,
-#             "n_s": float(pardict["n_s"]),
-#             "H0": H_0,
-#             "omega_b": omega_b,
-#             "omega_cdm": omega_cdm,
-#             "N_ur": float(pardict["N_ur"]),
-#             "N_ncdm": int(pardict["N_ncdm"]),
-#             "m_ncdm": pardict["m_ncdm"],
-#             "Omega_k": float(pardict["Omega_k"]),
-#         }
-#     )
-#     M.set(
-#         {
-#             "output": "mPk",
-#             "P_k_max_1/Mpc": float(pardict["P_k_max_h/Mpc"]),
-#             "z_max_pk": z_data,
-#         }
-#     )
-#     M.compute()
-    
-#     DM_at_z = M.angular_distance(z_data) * (1. + z_data)
-#     H_at_z = M.Hubble(z_data) * conts.c / 1000.0
-#     rd = M.rs_drag()
-    
-#     theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv*h_fid*h_fid*r_d_fid/(rd*h),z_data)*(h_fid*r_d_fid/(rd*h))**3.)/Amp_fid
-    
-#     theo_aperp = DM_at_z / DM_fid / rd * r_d_fid
-#     theo_apara = H_z_fid/ H_at_z / rd * r_d_fid
-    
-#     EHpk = EH98(M, kvec*h_fid*r_d_fid/(rd*h), z_data ,1.0)
-#     P_pk = Primordial(kvec*h_fid, A_s, float(pardict["n_s"]))
-    
-#     Pk_ratio = EHpk/P_pk
-    
-#     Pkshape_ratio_prime = slope_at_x(np.log(kvec),np.log(Pk_ratio/Pk_ratio_fid))
-#     theo_mslope = np.interp(np.log(kmpiv), np.log(kvec), Pkshape_ratio_prime)
-    
-#     diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], (theo_fAmp - 1.0)*fitdata[2], theo_mslope - fitdata[3]])
-    
-#     chi_squared = diff @ fitcov @ diff
-    
-#     return chi_squared
-
-# def lnlike(params):
-    
-#     ln10As, h, omega_cdm, omega_b = params[:4]
-    
-#     if Shapefit is True:
-    
-#         # A_s = np.exp(ln10As)/1.0e10
-        
-#         # theo_aperp, theo_apara, theo_fAmp, theo_mslope = interpolation_function(params)[0]
-#         theo_aperp, theo_apara, theo_fAmp, theo_mslope, fsigma8, theo_fAmp_new, mslope_dash, mslope_new = interpolation_function(params)[0]
-        
-#         # #Convert the angular diameter distance in Mpc/h. 
-#         # theo_aperp = (DM_at_z) / DM_fid / rd * r_d_fid
-#         # theo_apara = H_z_fid/ (H_at_z) / rd * r_d_fid
-        
-#         # # EHpk = EH98(kvec*h_fid*r_d_fid/(rd*h), z_data ,1.0, cosmo = M)
-#         # EHpk = EH98(kvec*h_fid*r_d_fid/(rd*h), z_data ,1.0, rd = rd, z_d = z_d, Omm = Omm, zeq = zeq, keq = keq, Hz = H_at_z, 
-#         #          h=h, Omb = omega_b, Omc = omega_cdm, n_s = float(pardict["n_s"]), growth = growth, Hubble=Hubble)
-#         # #Add in the primordial power spectrum calculation. 
-#         # P_pk = Primordial(kvec*h_fid, A_s, float(pardict["n_s"]))
-        
-#         # Pk_ratio = EHpk/P_pk
-        
-#         # Pkshape_ratio_prime = slope_at_x(np.log(kvec),np.log(Pk_ratio/Pk_ratio_fid))
-#         # # Pkshape_ratio_prime = slope_at_x(np.log(kvec),np.log(EHpk/EHpk_fid))
-#         # theo_mslope = np.interp(kmpiv, kvec, Pkshape_ratio_prime)
-        
-#         diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], theo_fAmp_new*fsigma8_fid - fitdata[2], mslope_dash - fitdata[3]])
-#         # diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], theo_fAmp*fsigma8_fid - fitdata[2], mslope - fitdata[3]])
-
-        
-#         chi_squared = diff @ fitcov @ diff
-#     else:
-#             if FullShape is False:
-#                 theo_aperp, theo_apara, theo_fAmp, theo_mslope, fsigma8, theo_fAmp_new, mslope_dash, mslope_new = interpolation_function(params)[0]
-    
-#                 # # Factors of little h required as Da and Hz in Grid.py have little h scaled out.
-#                 # alpha_perp = (Da ) * (1.0 / Da_fid) * (r_d_fid / (r_d))
-#                 # alpha_par = (Hz_fid) / (Hz) * (r_d_fid / (r_d))
-                
-#                 # # print(alpha_perp, alpha_par, f*sigma8)
-    
-#                 # diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], theo_fAmp_new*fsigma8_fid - fitdata[2]])
-#                 diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], fsigma8 - fitdata[2]])
-#             else:
-#                 Om, Da, Hz, Dn, f, sigma8, sigma8_0, sigma12, r_d = interpolation_function2(params)[0]
-#                 theo_aperp, theo_apara, theo_fAmp, theo_mslope = interpolation_function(params)[0]
-#             # factor = float(pardict['h'])/h
-#                 diff = np.array([theo_aperp - fitdata[0], theo_apara - fitdata[1], f*sigma8 - fitdata[2]])
-
-#             chi_squared = diff @ fitcov @ diff    
-#     return -0.5*chi_squared
-
-# def lnlike(params):
-#     # alpha_perp, alpha_par, fsigma8, m = params
-#     alpha_perp, alpha_par, fsigma8, m = interpolation_function(params.T)[0]
-#     fsigma8 = fsigma8*fsigma8_fid
-#     like = interpolation_lnlike(np.array([alpha_perp, alpha_par, fsigma8, m]).T)[0]
-    
-#     # print(np.shape(like), like)
-#     if like > 0.0:
-#         return np.log(like)
-#     else:
-#         return -1e30
-
-# def lnlike(params):
-#     #This is the likelihood function
-    
-#     #Read in the cosmological parameters. 
-#     ln10As, h, omega_cdm, omega_b = params[:4]
-    
-#     # ln10As, h, Omega_m = params[:3]
-    
-#     A_s = np.exp(ln10As)/1.0e10
-#     H_0 = 100.0*h
-    
-#     #Set up Class. 
-#     M = Class()
-    
-#     M.set(
-#         {
-#             "A_s": A_s,
-#             "n_s": float(pardict["n_s"]),
-#             "H0": H_0,
-#             "omega_b": omega_b,
-#             "omega_cdm": omega_cdm,
-#             "N_ur": float(pardict["N_ur"]),
-#             "N_ncdm": int(pardict["N_ncdm"]),
-#             "m_ncdm": pardict["m_ncdm"],
-#             "Omega_k": float(pardict["Omega_k"]),
-#         }
-#     )
-#     # M.set(
-#     #     {
-#     #         "A_s": A_s,
-#     #         "n_s": float(pardict["n_s"]),
-#     #         "H0": H_0,
-#     #         "Omega_m": Omega_m,
-#     #         "N_ur": float(pardict["N_ur"]),
-#     #         "N_ncdm": int(pardict["N_ncdm"]),
-#     #         "m_ncdm": pardict["m_ncdm"],
-#     #         "Omega_k": float(pardict["Omega_k"]),
-#     #     }
-#     # )
-    
-#     M.set(
-#         {
-#             "output": "mPk",
-#             "P_k_max_1/Mpc": float(pardict["P_k_max_h/Mpc"]),
-#             "z_max_pk": np.max(z_data_all) + 0.5,
-#         }
-#     )
-#     M.compute()
-    
-#     model_all = []
-#     for i in range(nz):
-        
-#         #The fiducial values. 
-#         h_fid, H_z_fid, r_d_fid, DM_fid, fAmp_fid, transfer_fid, fsigma8_fid = fiducial_all[i]
-#         #The redshift. 
-#         z_data = float(pardict["z_pk"][i])
-        
-#         #Compute DM, H(z) and rd with the new cosmology.
-#         DM_at_z = M.angular_distance(z_data) * (1. + z_data)
-#         H_at_z = M.Hubble(z_data) * conts.c / 1000.0
-#         rd = M.rs_drag()
-        
-#         #Compute the ratio of fAmp in the Shapefit paper in order to find the corresponding fsigma8 parameter. 
-#         theo_fAmp = M.scale_independent_growth_factor_f(z_data)*np.sqrt(M.pk_lin(kmpiv*h_fid*r_d_fid/(rd),z_data)*(h*r_d_fid/(rd))**3.)/fAmp_fid
-        
-#         theo_aperp = (DM_at_z) / DM_fid / rd * r_d_fid
-#         theo_apara = H_z_fid/ (H_at_z) / rd * r_d_fid
-    
-#         if Shapefit is True:
-            
-#             # d_dk = FinDiff(0, np.log(kvec), 1, acc=10)
-            
-#             #Compute the transfer function with the EH98 formula. 
-#             transfer_new = EH98_transfer(kvec*h_fid*r_d_fid/(rd*h), z_data ,1.0, cosmo=M)*(r_d_fid/rd)**3
-            
-#             # ratio_transfer = d_dk(np.log(transfer_new/transfer_fid))
-            
-#             #Find the slope at the pivot scale.  
-#             ratio_transfer = slope_at_x(np.log(kvec), np.log(transfer_new/transfer_fid))
-#             theo_mslope = interpolate.interp1d(kvec, ratio_transfer, kind='cubic')(kmpiv)
-            
-#             #Find the model a_perp, a_par fsigma8 and m.             
-#             model_all.append([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid, theo_mslope])
-#         else:
-#                 #This is for the template fit. 
-#                 if FullShape is False:
-        
-#                     model_all.append([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid])
-#                 #Ignore this. 
-#                 else:
-#                     Om, Da, Hz, Dn, f, sigma8, sigma8_0, sigma12, r_d = interpolation_function2(params)[0]
-#                     theo_aperp, theo_apara, theo_fAmp, theo_mslope = interpolation_function(params)[0]
-                    
-#     model = np.concatenate(model_all)
-    
-#     #Calculate the difference between the model and "data" (from shapefit) compressed parameter and then calculate chi-squared. 
-#     chi_squared = np.dot(np.dot(model-data_all, cov_all), model-data_all)
-    
-#     if np.random.rand() < 0.01:
-#         print(params[:4], chi_squared)
-      
-#     return -0.5*chi_squared
-
 def lnlike(params):
     # theo_aperp, theo_apara, theo_fAmp, theo_mslope, fsigma8, theo_mslope_dash, theo_fAmp_dash, theo_fAmp_prime, theo_mslope_prime = interpolation_function(params[:4])[0]
     
@@ -819,39 +585,25 @@ def lnlike(params):
     else:
         model = []
         for i in range(nz):
-                
-            if with_w0 == True or with_omegak == True:
-                theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:5])[0]
-            elif with_w0_wa == True:
-                theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:6])[0]
-            else:
-                theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:4])[0]
-        
+            # theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params)[0] 
             
-            # factor = -0.2269*(ratio)**2 + 0.6676*(ratio) + 0.5595
+            # if with_w0 == True or with_omegak == True:
+            #     theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:5])[0]
+            # elif with_w0_wa == True:
+            #     theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:6])[0]
+            # else:
+            #     theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = interpolation_functions[i](params[:4])[0]
             
-            # factor = ratio**0.22144
-            # theo_fAmp = factor*theo_fAmp
-        
+            dtheta = params - valueref
+            theo_aperp, theo_apara, theo_fAmp, theo_EH98, theo_hinton, theo_wallisch, fsigma8_ratio, fsigmas8_ratio = get_ParamsTaylor(dtheta, interpolation_functions[i], pardict["taylor_order"])
             
-            # theo_fAmp = theo_fAmp_dash
-            # theo_fAmp = theo_fAmp_prime
-            # theo_fAmp = fsigma8/fsigma8_fid
+            # print(theo_aperp, theo_apara, theo_fAmp, theo_EH98)
             
-            # theo_mslope = theo_mslope_dash
+            # theo_aperp = fsigma8_ratio
+            # theo_apara = fsigmas8_ratio
             
-            # theo_mslope = theo_mslope_prime
+            # print(theo_aperp, theo_apara, theo_fAmp, theo_EH98)
             
-            
-            # GF = GreenFunction(Omega0_m = (params[2] + params[3])/params[2]**2)
-            
-            # f = GF.fplus(1.0/(1.0 + np.int16(pardict['z_pk'])))
-            
-            # sigma8 = 0.5369920683243679
-            
-            # fsigma8_new = f*sigma8
-            
-            # b1, bp, bd = params[4:]
             if method == 1:
                 theo_mslope = theo_EH98
             elif method == 2:
@@ -861,6 +613,7 @@ def lnlike(params):
             else:
                 raise ValueError('Incorrect method for de-wiggle power spectrum. Enter 1 for EH98, 2 for Hinton2017 and 3 for Wallisch2018.')
                 
+            # theo_fAmp = fsigma8_ratio
             # if method_fsigma8 == 1:
             #     theo_fAmp = theo_fAmp
             # elif method_fsigma8 == 2:
@@ -872,6 +625,8 @@ def lnlike(params):
             
             # theo_fAmp = fsigmas8_ratio
             # model = np.array([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid, theo_mslope, b1, bp, bd])
+            
+            
             if Approx_Gaussian == True:
                 if nz == 1:
                     if Shapefit == True:
@@ -894,12 +649,18 @@ def lnlike(params):
                         model.append(interpolator_all[i]([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid[i], theo_mslope]))
                     else:
                         model.append(interpolator_all[i]([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid[i]]))
+            
+            # model = np.array([theo_aperp, theo_apara, theo_fAmp*fsigma8_fid, theo_mslope])
+            
+            # print(i, fsigma8_fid[i])
         
         if Approx_Gaussian == True:
             model = np.array(model)
             
             if nz > 1.5:
                 model = model.flatten()
+                # print(model)
+                # print(data_all)
                 
             chi_squared = np.dot(np.dot(model-data_all, cov_inv_all), model-data_all)
             # if np.random.rand() < 0.001:
@@ -1079,7 +840,195 @@ def slope_at_x(xvector,yvector):
     diff = np.append(diff,diff[-1])
     return diff
     
+def get_pder_lin(parref, pi, dx, filename = None, template=False):
+    """Calculates the derivative aroud the Grid.valueref points. Do this only once.
+    gridshape is 2 * order + 1, times the number of free parameters
+    pi is of shape gridshape, n multipoles, k length, P columns (zeroth being k's)"""
+    # Findiff syntax is Findiff((axis, delta of uniform grid along the axis, order of derivative, accuracy))
+    t0 = time.time()
 
+    if template:
+        lenpar = 4
+        idx = int(parref["template_order"]) + 1
+    else:
+        lenpar = len(parref["freepar"])
+        idx = int(parref["order"]) + 1
+
+    p0 = pi[(idx,) * lenpar]
+    # t1 = time.time()
+    # print("Done p0 in %s sec" % str(t1 - t0))
+
+    dpdx = np.array([findiff.FinDiff((i, dx[i], 1), acc=4)(pi)[(idx,) * lenpar] for i in range(lenpar)])
+    # print(findiff.coefficients(deriv=1, acc=4))
+    # t0 = time.time()
+    # print("Done dpdx in %s sec" % str(t0 - t1))
+
+    # Second derivatives
+    d2pdx2 = np.array([findiff.FinDiff((i, dx[i], 2), acc=2)(pi)[(idx,) * lenpar] for i in range(lenpar)])
+    # t1 = time.time()
+    # print("Done d2pdx2 in %s sec" % str(t1 - t0))
+
+    d2pdxdy = np.array(
+        [
+            [i, j, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 1), acc=2)(pi)[(idx,) * lenpar]]
+            for (i, j) in combinations(range(lenpar), 2)
+        ]
+    )
+    # t0 = time.time()
+    # print("Done d2pdxdy in %s sec" % str(t0 - t1))
+
+    # Third derivatives: we only need it for A_s, so I do this by hand
+    d3pdx3 = np.array([findiff.FinDiff((i, dx[i], 3))(pi)[(idx,) * lenpar] for i in range(lenpar)])
+    # t1 = time.time()
+    # print("Done d3pdx3 in %s sec" % str(t1 - t0))
+
+    d3pdx2dy = np.array(
+        [
+            [i, j, findiff.FinDiff((i, dx[i], 2), (j, dx[j], 1))(pi)[(idx,) * lenpar]]
+            for (i, j) in combinations(range(lenpar), 2)
+        ]
+    )
+    # t0 = time.time()
+    # print("Done d3pdx2dy in %s sec" % str(t0 - t1))
+
+    d3pdxdy2 = np.array(
+        [
+            [i, j, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 2))(pi)[(idx,) * lenpar]]
+            for (i, j) in combinations(range(lenpar), 2)
+        ]
+    )
+    # t1 = time.time()
+    # print("Done d3pdxdy2 in %s sec" % str(t1 - t0))
+
+    d3pdxdydz = np.array(
+        [
+            [i, j, k, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 1), (k, dx[k], 1))(pi)[(idx,) * lenpar]]
+            for (i, j, k) in combinations(range(lenpar), 3)
+        ]
+    )
+    # t0 = time.time()
+    # print("Done d3pdxdydz in %s sec" % str(t0 - t1))
+
+    # d4pdx4 = np.array([findiff.FinDiff((i, dx[i], 4))(pi)[(idx,) * lenpar] for i in range(lenpar)])
+    # t1 = time.time()
+    # print("Done d4pdx4 in %s sec" % str(t1 - t0))
+
+    # d4pdx3dy = np.array(
+    #     [
+    #         [i, j, findiff.FinDiff((i, dx[i], 3), (j, dx[j], 1))(pi)[(idx,) * lenpar]]
+    #         for (i, j) in combinations(range(lenpar), 2)
+    #     ]
+    # )
+    # t0 = time.time()
+    # print("Done d4pdx3dy in %s sec" % str(t0 - t1))
+
+    # d4pdxdy3 = np.array(
+    #     [
+    #         [i, j, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 3))(pi)[(idx,) * lenpar]]
+    #         for (i, j) in combinations(range(lenpar), 2)
+    #     ]
+    # )
+    # t1 = time.time()
+    # print("Done d4pdxdy3 in %s sec" % str(t1 - t0))
+
+    # d4pdx2dydz = np.array(
+    #     [
+    #         [i, j, k, findiff.FinDiff((i, dx[i], 2), (j, dx[j], 1), (k, dx[k], 1))(pi)[(idx,) * lenpar]]
+    #         for (i, j, k) in combinations(range(lenpar), 3)
+    #     ]
+    # )
+    # t0 = time.time()
+    # print("Done d4pdx2dydz in %s sec" % str(t0 - t1))
+
+    # d4pdxdy2dz = np.array(
+    #     [
+    #         [i, j, k, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 2), (k, dx[k], 1))(pi)[(idx,) * lenpar]]
+    #         for (i, j, k) in combinations(range(lenpar), 3)
+    #     ]
+    # )
+    # t1 = time.time()
+    # print("Done d4pdxdy2dz in %s sec" % str(t1 - t0))
+
+    # d4pdxdydz2 = np.array(
+    #     [
+    #         [i, j, k, findiff.FinDiff((i, dx[i], 1), (j, dx[j], 1), (k, dx[k], 2))(pi)[(idx,) * lenpar]]
+    #         for (i, j, k) in combinations(range(lenpar), 3)
+    #     ]
+    # )
+    # t0 = time.time()
+    # print("Done d4pdxdydz2 in %s sec" % str(t0 - t1))
+
+    # d4pdxdydzdzm = np.array(
+    #     [
+    #         [
+    #             i,
+    #             j,
+    #             k,
+    #             m,
+    #             findiff.FinDiff((i, dx[i], 1), (j, dx[j], 1), (k, dx[k], 1), (m, dx[m], 1))(pi)[(idx,) * lenpar],
+    #         ]
+    #         for (i, j, k, m) in combinations(range(lenpar), 4)
+    #     ]
+    # )
+    # t1 = time.time()
+    # print("Done d4pdxdydzdm in %s sec" % str(t1 - t0))
+
+    allder = (
+        p0,
+        dpdx,
+        d2pdx2,
+        d2pdxdy,
+        d3pdx3,
+        d3pdx2dy,
+        d3pdxdy2,
+        d3pdxdydz,
+        # d4pdx4,
+        # d4pdx3dy,
+        # d4pdxdy3,
+        # d4pdx2dydz,
+        # d4pdxdy2dz,
+        # d4pdxdydz2,
+        # d4pdxdydzdzm,
+    )
+    # np.save(filename, allder)
+    return allder
+
+def get_ParamsTaylor(dtheta, derivatives, taylor_order):
+    # Shape of dtheta: number of free parameters
+    # Shape of derivatives: tuple up to third derivative where each element has shape (num free par, multipoles, lenk, columns)
+    t1 = np.einsum("p,pm->m", dtheta, derivatives[1])
+    t2diag = np.einsum("p,pm->m", dtheta ** 2, derivatives[2])
+    t2nondiag = np.sum([dtheta[d[0]] * dtheta[d[1]] * d[2] for d in derivatives[3]], axis=0)
+    t3diag = np.einsum("p,pm->m", dtheta ** 3, derivatives[4])
+    t3semidiagx = np.sum([dtheta[d[0]] ** 2 * dtheta[d[1]] * d[2] for d in derivatives[5]], axis=0)
+    t3semidiagy = np.sum([dtheta[d[0]] * dtheta[d[1]] ** 2 * d[2] for d in derivatives[6]], axis=0)
+    t3nondiag = np.sum([dtheta[d[0]] * dtheta[d[1]] * dtheta[d[2]] * d[3] for d in derivatives[7]], axis=0)
+    # t4diag = np.einsum("p,pm->m", dtheta ** 4, derivatives[8])
+    # t4semidiagx = np.sum([dtheta[d[0]] ** 3 * dtheta[d[1]] * d[2] for d in derivatives[9]], axis=0)
+    # t4semidiagy = np.sum([dtheta[d[0]] * dtheta[d[1]] ** 3 * d[2] for d in derivatives[10]], axis=0)
+    # t4semidiagx2 = np.sum([dtheta[d[0]] ** 2 * dtheta[d[1]] * dtheta[d[2]] * d[3] for d in derivatives[11]], axis=0)
+    # t4semidiagy2 = np.sum([dtheta[d[0]] * dtheta[d[1]] ** 2 * dtheta[d[2]] * d[3] for d in derivatives[12]], axis=0)
+    # t4semidiagz2 = np.sum([dtheta[d[0]] * dtheta[d[1]] * dtheta[d[2]] ** 2 * d[3] for d in derivatives[13]], axis=0)
+    # t4nondiag = np.sum(
+    #     [dtheta[d[0]] * dtheta[d[1]] * dtheta[d[2]] * dtheta[d[3]] * d[4] for d in derivatives[14]], axis=0
+    # )
+    allPS = derivatives[0] + t1
+    if taylor_order > 1:
+        allPS += 0.5 * t2diag + t2nondiag
+        if taylor_order > 2:
+            allPS += t3diag / 6.0 + t3semidiagx / 2.0 + t3semidiagy / 2.0 + t3nondiag
+            # if taylor_order > 3:
+            #     allPS += (
+            #         t4diag / 24.0
+            #         + t4semidiagx / 6.0
+            #         + t4semidiagy / 6.0
+            #         + t4semidiagx2 / 2.0
+            #         + t4semidiagy2 / 2.0
+            #         + t4semidiagz2 / 2.0
+            #         + t4nondiag
+            #     )
+
+    return allPS
 
 if __name__ == "__main__":
 
@@ -1197,25 +1146,39 @@ if __name__ == "__main__":
                 filename = "Shapefit_Grid_" + str(i) + "_" + str(job_total_num) + '_omegak' + 'bin_' + str(pardict['red_index'][j]) + ".npy"
                 with_omegak = True
             else:
-                filename = "Shapefit_Grid_" + str(i) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index'][j]) + ".npy"
+                filename = "Shapefit_Grid_sigma_" + str(i) + "_" + str(job_total_num) + 'bin_' + str(pardict['red_index'][j]) + ".npy"
+                
+            
             grid = np.load(filename)
             grid_all.append(grid)
         
+        print(filename)
         grid_all = np.vstack(grid_all)
+        
         order = np.int32(pardict["order"])
         delta = np.fabs(np.array(pardict["dx"], dtype=np.float64))
         valueref = np.array([float(pardict[k]) for k in pardict["freepar"]])
         truecrd = [valueref[l] + delta[l] * np.arange(-order, order + 1) for l in range(len(pardict["freepar"]))]
         shapecrd = np.concatenate([[len(pardict["freepar"])], np.full(len(pardict["freepar"]), 2 * int(pardict["order"]) + 1)])
-        grid_all = grid_all.reshape((*shapecrd[1:], np.shape(grid_all)[1]))
-        if with_w0 == True:
-            interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
-        elif with_w0_wa == True:
-            interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
-        elif with_omegak == True:
-            interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
-        else:
-            interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        padshape = [(1, 1)] * (len(shapecrd) - 1)
+        grid_all_new = grid_all.reshape((*shapecrd[1:], np.shape(grid_all)[1]))
+        grid_all_new = np.pad(grid_all_new, padshape + [(0, 0)], "constant", constant_values=0)
+        interpolation_function = get_pder_lin(pardict, grid_all_new, delta)
+        
+        # if with_w0 == True:
+        #     interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        # elif with_w0_wa == True:
+        #     interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        # elif with_omegak == True:
+        #     interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        # else:
+        #     interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all)
+        
+        # interpolation_function = sp.interpolate.RegularGridInterpolator(truecrd, grid_all_new)
+        
+        # np.save('Grid_' + str(i) + '.npy', interpolation_function)
+        
+        # raise ValueError('Test complete')
         # interpolation_function2 = sp.interpolate.RegularGridInterpolator(grid_all, truecrd)
         interpolation_functions.append(interpolation_function)
     
@@ -1270,9 +1233,12 @@ if __name__ == "__main__":
     #     keyword += '_anticorr'
     
     if FullShape == True:
-        chainfile = ['../../data/DESI_KP4_LRG_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_0_mean_single_BOSS_MaxF.hdf5', 
-                     '../../data/DESI_KP4_ELG_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_1_mean_single_BOSS_MaxF.hdf5', 
-                     '../../data/DESI_KP4_QSO_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_2_mean_single_BOSS_MaxF.hdf5']
+        # chainfile = ['../../data/DESI_KP4_LRG_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_0_mean_single_BOSS_MaxF.hdf5', 
+        #              '../../data/DESI_KP4_ELG_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_1_mean_single_BOSS_MaxF.hdf5', 
+        #              '../../data/DESI_KP4_QSO_8_DE_pk_0.20hex0.20_3order_nohex_marg_kmin0p02_fewerbias_bin_2_mean_single_BOSS_MaxF.hdf5']
+        chainfile = ['../../data/DESI_KP4_LRG_8_DE_pk_0.20hex0.20_3order_nohex_marg_Shapefit_planck_mock_mean_single_BOSS_MaxF_Approx_EH98.hdf5', 
+                     '../../data/DESI_KP4_ELG_8_DE_pk_0.20hex0.20_3order_nohex_marg_Shapefit_planck_mock_mean_single_BOSS_MaxF_Approx_EH98.hdf5', 
+                     '../../data/DESI_KP4_QSO_8_DE_pk_0.20hex0.20_3order_nohex_marg_Shapefit_planck_mock_mean_single_BOSS_MaxF_Approx_EH98.hdf5']
         
     for i in range(nz):
     
@@ -1290,15 +1256,17 @@ if __name__ == "__main__":
             # useful = np.load("FullShape_template.npy")
             fitdata = mean
             fitcov = cov
-        else:
+        elif Shapefit == True:
             # fitdata, fitcov = read_chain(pardict, Shapefit, i, with_zeus=True)
             # fitdata, fitcov = read_chain(pardict, Shapefit, i, with_zeus=False)
             
             if Approx_Gaussian == True:
                 if nz != 1:
                     fitdata, fitcov = read_chain(pardict, Shapefit, np.int32(pardict['red_index'])[i], with_zeus=False, index = i)
+                    print(fsigma8_fid[i])
                 else:
                     fitdata, fitcov = read_chain(pardict, Shapefit, int(pardict['red_index']), with_zeus=False)
+                    print(fsigma8_fid)
             else:
                 if nz != 1:
                     interpolator = read_chain(pardict, Shapefit, np.int32(pardict['red_index'])[i], with_zeus=False, index = i)
@@ -1307,7 +1275,11 @@ if __name__ == "__main__":
                     interpolator = read_chain(pardict, Shapefit, int(pardict['red_index']), with_zeus=False)
                     
                     print(interpolator([1.0, 1.0, fsigma8_fid, 0.0]))
-        
+                    
+        # else:
+        #     fitdata = np.array([2.95623019, 0.67753166, 0.11692257, 0.02236975])
+        #     fitcov = np.eye(4)
+            
         if Approx_Gaussian == True:
             fit_data_all.append(fitdata)
             fit_cov_all.append(fitcov)
@@ -1353,11 +1325,14 @@ if __name__ == "__main__":
 
     # Does an optimization
     # result = do_optimization(lambda *args: -lnpost(*args), start)
+    # print(result)
 
     # Does an MCMC and then post-processes to get some derived params
     do_emcee(lnpost, start)
     
+    # test = np.array([2.9624, 0.6673, 0.1147, 0.022])
     
+    # print(lnlike(test))
     # nparams = len(pardict["dx"])
     
     # order = int(pardict['order'])
