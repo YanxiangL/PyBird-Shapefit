@@ -8,13 +8,13 @@
 #../../EFTGrids
 #../../EFTGrids
 
-#../../EFTGrids/new
-#../../EFTGrids/new
-#../../EFTGrids/new
+../../EFTGrids/new
+../../EFTGrids/new
+../../EFTGrids/new
 
-../../EFTGrids/old
-../../EFTGrids/old
-../../EFTGrids/old
+#../../EFTGrids/old
+#../../EFTGrids/old
+#../../EFTGrids/old
 
 
 #../../EFTGrids/small
