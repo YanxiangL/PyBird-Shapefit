@@ -118,7 +118,8 @@ if __name__ == "__main__":
     else:
         kin, Pin, Om, Da_fid, Hz_fid, DN_fid, fN_fid, sigma8_fid, sigma8_0_fid, sigma12, r_d = run_class(pardict)
         
-    print(r_d)
+    print(r_d,)
+    # np.save('Plin_CLASS.npy', [kin, Pin[0]])
 
     # Set up pybird. Can't use the "skycut" option for multiple redshift bins if we want to accurately account
     # for non-linear growth due to e.g., neutrinos, so if not "scale_independent" we'll set up each redshift bin as a separate correlator.

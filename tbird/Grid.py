@@ -307,8 +307,12 @@ def run_class(pardict, redindex=0):
     f = np.array([M.scale_independent_growth_factor_f(z) for z in parlinear["z_pk"]])
     sigma8 = np.array([M.sigma(8.0 / M.h(), z) for z in parlinear["z_pk"]])
     sigma8_0 = M.sigma(8.0 / M.h(), 0.0)
-    sigma12 = np.array([M.sigma(12.0, z) for z in parlinear["z_pk"]])
+    sigma12 = np.array([M.sigma(12, z) for z in parlinear["z_pk"]])
     r_d = M.rs_drag()
+    
+    # print(f*sigma8, f*np.array([M.sigma(11.5, z) for z in parlinear["z_pk"]]))
+    
+    # print(M.angular_distance(float(parlinear["z_pk"][redindex]))*(1.0+float(parlinear["z_pk"][redindex])), M.Hubble(float(parlinear["z_pk"][redindex])) * conts.c / 1000.0)
 
     return kin, Plin, Omega_m, Da, H, D, f, sigma8, sigma8_0, sigma12, r_d
 
